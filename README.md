@@ -16,6 +16,9 @@ go run ./cmd/server
 
 The API listens on `http://localhost:8080` by default.
 
+The administrator command prompts for a credential without echoing it. For
+non-interactive setup, pipe the credential and pass `--credential-stdin`.
+
 ## Checks
 
 ```bash
