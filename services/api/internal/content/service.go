@@ -161,13 +161,19 @@ func (s *Service) List(ctx context.Context, limit, offset int32) ([]Content, err
 	}
 	items := make([]Content, 0, len(records))
 	for _, record := range records {
+		analysis, err := decodeAnalysis(record.Title, record.AnalysisNotes)
+		if err != nil {
+			return nil, err
+		}
 		items = append(items, Content{
 			ID:        record.ID,
 			Title:     record.Title,
 			Status:    record.Status,
 			VersionID: record.VersionID,
 			VersionNo: record.VersionNo,
+			SHA256:    record.SHA256,
 			ByteSize:  record.ByteSize,
+			Analysis:  analysis,
 			CreatedAt: record.CreatedAt,
 		})
 	}
@@ -182,25 +188,9 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (Content, error) {
 	if err != nil {
 		return Content{}, fmt.Errorf("get content: %w", err)
 	}
-	analysis := Analysis{
-		Title:             record.Title,
-		ExternalResources: []string{},
-		Warnings:          []string{},
-	}
-	if len(record.AnalysisNotes) > 0 {
-		var notes struct {
-			ViewportPresent   bool     `json:"viewport_present"`
-			ScriptCount       int      `json:"script_count"`
-			ExternalResources []string `json:"external_resources"`
-			Warnings          []string `json:"warnings"`
-		}
-		if err := json.Unmarshal(record.AnalysisNotes, &notes); err != nil {
-			return Content{}, fmt.Errorf("decode analysis notes: %w", err)
-		}
-		analysis.ViewportPresent = notes.ViewportPresent
-		analysis.ScriptCount = notes.ScriptCount
-		analysis.ExternalResources = notes.ExternalResources
-		analysis.Warnings = notes.Warnings
+	analysis, err := decodeAnalysis(record.Title, record.AnalysisNotes)
+	if err != nil {
+		return Content{}, err
 	}
 	return Content{
 		ID:        record.ID,
@@ -213,4 +203,33 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (Content, error) {
 		Analysis:  analysis,
 		CreatedAt: record.CreatedAt,
 	}, nil
+}
+
+func decodeAnalysis(title string, notesJSON []byte) (Analysis, error) {
+	analysis := Analysis{
+		Title:             title,
+		ExternalResources: []string{},
+		Warnings:          []string{},
+	}
+	if len(notesJSON) == 0 {
+		return analysis, nil
+	}
+	var notes struct {
+		ViewportPresent   bool     `json:"viewport_present"`
+		ScriptCount       int      `json:"script_count"`
+		ExternalResources []string `json:"external_resources"`
+		Warnings          []string `json:"warnings"`
+	}
+	if err := json.Unmarshal(notesJSON, &notes); err != nil {
+		return Analysis{}, fmt.Errorf("decode analysis notes: %w", err)
+	}
+	analysis.ViewportPresent = notes.ViewportPresent
+	analysis.ScriptCount = notes.ScriptCount
+	if notes.ExternalResources != nil {
+		analysis.ExternalResources = notes.ExternalResources
+	}
+	if notes.Warnings != nil {
+		analysis.Warnings = notes.Warnings
+	}
+	return analysis, nil
 }

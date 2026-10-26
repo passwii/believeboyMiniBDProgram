@@ -76,13 +76,15 @@ func (p *PostgresRepository) List(ctx context.Context, limit, offset int32) ([]R
 	records := make([]Record, 0, len(rows))
 	for _, row := range rows {
 		records = append(records, Record{
-			ID:        row.ID,
-			Title:     row.Title,
-			Status:    row.Status,
-			VersionID: row.VersionID,
-			VersionNo: row.VersionNo,
-			ByteSize:  row.ByteSize,
-			CreatedAt: row.CreatedAt.Time,
+			ID:            row.ID,
+			Title:         row.Title,
+			Status:        row.Status,
+			VersionID:     row.VersionID,
+			VersionNo:     row.VersionNo,
+			SHA256:        row.Sha256,
+			ByteSize:      row.ByteSize,
+			AnalysisNotes: row.AnalysisNotes,
+			CreatedAt:     row.CreatedAt.Time,
 		})
 	}
 	return records, nil

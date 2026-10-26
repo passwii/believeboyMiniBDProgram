@@ -4,9 +4,9 @@
 
 **Goal:** Add authenticated single-file HTML upload, strict self-contained validation, S3-compatible object storage, immutable content versions, and admin content list/detail endpoints.
 
-**Architecture:** The Go API validates the uploaded file before writing it to object storage, then creates content metadata and version rows in a PostgreSQL transaction. MinIO provides the local S3 implementation. Unit tests use an in-memory storage implementation; the service and database integration tests use real PostgreSQL.
+**Architecture:** The Go API validates the uploaded file before writing it to object storage, then creates content metadata and version rows in a PostgreSQL transaction. Adobe S3Mock provides the local S3 implementation because MinIO's public container images are no longer generally available. Unit tests use an in-memory storage implementation; the service and database integration tests use real PostgreSQL.
 
-**Tech Stack:** Go 1.27, Chi, pgx/v5, sqlc, PostgreSQL 17, AWS SDK for Go v2 S3 client, MinIO.
+**Tech Stack:** Go 1.27, Chi, pgx/v5, sqlc, PostgreSQL 17, AWS SDK for Go v2 S3 client, Adobe S3Mock.
 
 ## Global Constraints
 
@@ -451,39 +451,28 @@ git commit -m "feat(api): add authenticated content upload endpoints"
 
 ---
 
-### Task 6: Verify MinIO and PostgreSQL End-to-End
+### Task 6: Verify S3Mock and PostgreSQL End-to-End
 
 **Files:**
 - Modify: `README.md`
-- Create: `scripts/dev/seed-minio.sh`
 
 **Interfaces:**
 - Consumes: Docker Compose services, administrator session, valid self-contained HTML.
 - Produces: a stored HTML object and a content version visible through the API.
 
-- [ ] **Step 1: Ensure the MinIO bucket exists**
+- [ ] **Step 1: Ensure the S3Mock bucket is configured**
 
-Create `scripts/dev/seed-minio.sh`:
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-docker compose --env-file .env -f infra/compose.yaml exec -T minio sh -lc '
-  mc alias set local http://127.0.0.1:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
-  mc mb --ignore-existing local/content >/dev/null
-'
-```
+The Compose service sets
+`COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS=content`, so the bucket is
+created when S3Mock starts.
 
 - [ ] **Step 2: Run local dependencies**
 
 ```bash
-docker compose --env-file .env.example -f infra/compose.yaml up -d postgres minio
-chmod +x scripts/dev/seed-minio.sh
-./scripts/dev/seed-minio.sh
+docker compose --env-file .env.example -f infra/compose.yaml up -d postgres s3mock
 ```
 
-Expected: PostgreSQL and MinIO are healthy, bucket `content` exists.
+Expected: PostgreSQL and S3Mock are running, bucket `content` exists.
 
 - [ ] **Step 3: Run migration and server**
 
@@ -511,8 +500,6 @@ Expected: `201` with `title`, `version_no: 1`, a 64-character SHA-256 hex string
 - [ ] **Step 5: Verify object and database**
 
 ```bash
-docker compose --env-file .env.example -f infra/compose.yaml exec -T minio sh -lc \
-  'mc ls --recursive local/content'
 docker compose --env-file .env.example -f infra/compose.yaml exec -T postgres \
   psql -U believeboy -d believeboy -c \
   'SELECT c.title, v.version_no, v.byte_size FROM contents c JOIN content_versions v ON v.content_id = c.id;'
@@ -533,7 +520,7 @@ Expected: all tests and vet checks pass.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add README.md scripts/dev/seed-minio.sh
+git add README.md
 git commit -m "chore: document content storage setup"
 ```
 

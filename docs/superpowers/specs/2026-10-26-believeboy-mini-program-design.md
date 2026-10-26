@@ -43,7 +43,7 @@
 | 管理后台 | Next.js App Router + TypeScript |
 | 业务后端 | Go |
 | 数据库 | PostgreSQL |
-| 对象存储 | S3 兼容接口；开发使用 MinIO |
+| 对象存储 | S3 兼容接口；开发使用 Adobe S3Mock |
 | 管理后台边界 | 只做界面，所有业务规则和鉴权在 Go |
 | 客户身份 | 无客户账号；分享记录和短时会话就是访问主体 |
 | 分享类型 | `PUBLIC` 群分享和 `PRIVATE` 专属分享 |
@@ -84,7 +84,7 @@
 Next.js 管理后台 ─────────> ADMIN_ORIGIN/api ─────────────────> Go
 
 Go ─────────> PostgreSQL
-Go ─────────> S3 / MinIO
+Go ─────────> S3 object storage
 ```
 
 路由规则：
@@ -136,7 +136,7 @@ Go ─────────> S3 / MinIO
 - 分享令牌、密码摘要、有效期和撤销状态。
 - 密码限流、查看器会话、一次性票据和内容签名。
 - 审计日志、请求 ID、健康检查和指标。
-- 所有业务数据只能通过 Go 读写，Next.js 不直接连接 PostgreSQL 或 MinIO。
+- 所有业务数据只能通过 Go 读写，Next.js 不直接连接 PostgreSQL 或对象存储。
 
 ## 6. 数据模型
 
@@ -487,7 +487,7 @@ docs/
 - Next.js
 - H5 静态站点
 - PostgreSQL
-- MinIO
+- S3Mock（仅本地开发）
 
 Caddy 负责：
 
@@ -497,7 +497,7 @@ Caddy 负责：
 - 请求体大小限制
 - 基础安全响应头
 
-PostgreSQL 和 MinIO 使用持久卷，每日执行加密备份并复制到服务器之外。Go 提供 `/health/live` 和 `/health/ready`。日志使用 JSON 输出到 stdout，由容器日志轮转管理。
+PostgreSQL 使用持久卷；生产对象存储使用云服务或持久化的 S3 兼容存储，每日执行加密备份并复制到服务器之外。Go 提供 `/health/live` 和 `/health/ready`。日志使用 JSON 输出到 stdout，由容器日志轮转管理。
 
 必需环境变量集中在 `.env.example`，至少包含：
 
@@ -516,7 +516,7 @@ PostgreSQL 和 MinIO 使用持久卷，每日执行加密备份并复制到服�
 Go：
 
 - 单元测试覆盖密码摘要、限流、过期、撤销、RBAC、内容签名和令牌票据。
-- 集成测试使用真实 PostgreSQL 和 MinIO 容器，覆盖上传、分享、解锁、会话和内容签发。
+- 集成测试使用真实 PostgreSQL 和 S3 兼容存储，覆盖上传、分享、解锁、会话和内容签发。
 - 安全测试覆盖外部资源拒绝、CSP、跨域 Cookie、过期令牌和重放票据。
 
 前端：

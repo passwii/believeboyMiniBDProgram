@@ -195,6 +195,14 @@ func (h adminContentHandlers) writeCreateError(w http.ResponseWriter, r *http.Re
 }
 
 func toContentResponse(item content.Content) contentResponse {
+	externalResources := item.Analysis.ExternalResources
+	if externalResources == nil {
+		externalResources = []string{}
+	}
+	warnings := item.Analysis.Warnings
+	if warnings == nil {
+		warnings = []string{}
+	}
 	return contentResponse{
 		ID:        item.ID,
 		Title:     item.Title,
@@ -206,8 +214,8 @@ func toContentResponse(item content.Content) contentResponse {
 		Analysis: analysisResponse{
 			ViewportPresent:   item.Analysis.ViewportPresent,
 			ScriptCount:       item.Analysis.ScriptCount,
-			ExternalResources: item.Analysis.ExternalResources,
-			Warnings:          item.Analysis.Warnings,
+			ExternalResources: externalResources,
+			Warnings:          warnings,
 		},
 		CreatedAt: item.CreatedAt.UTC().Format(time.RFC3339),
 	}

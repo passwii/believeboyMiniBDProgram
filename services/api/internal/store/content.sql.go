@@ -150,7 +150,9 @@ SELECT
     c.created_at,
     v.id AS version_id,
     v.version_no,
-    v.byte_size
+    v.sha256,
+    v.byte_size,
+    v.analysis_notes
 FROM contents c
 JOIN LATERAL (
     SELECT id, content_id, version_no, object_key, sha256, byte_size, content_title, analysis_status, analysis_notes, created_by, created_at FROM content_versions
@@ -169,13 +171,15 @@ type ListContentsParams struct {
 }
 
 type ListContentsRow struct {
-	ID        uuid.UUID
-	Title     string
-	Status    string
-	CreatedAt pgtype.Timestamptz
-	VersionID uuid.UUID
-	VersionNo int32
-	ByteSize  int64
+	ID            uuid.UUID
+	Title         string
+	Status        string
+	CreatedAt     pgtype.Timestamptz
+	VersionID     uuid.UUID
+	VersionNo     int32
+	Sha256        []byte
+	ByteSize      int64
+	AnalysisNotes []byte
 }
 
 func (q *Queries) ListContents(ctx context.Context, arg ListContentsParams) ([]ListContentsRow, error) {
@@ -194,7 +198,9 @@ func (q *Queries) ListContents(ctx context.Context, arg ListContentsParams) ([]L
 			&i.CreatedAt,
 			&i.VersionID,
 			&i.VersionNo,
+			&i.Sha256,
 			&i.ByteSize,
+			&i.AnalysisNotes,
 		); err != nil {
 			return nil, err
 		}

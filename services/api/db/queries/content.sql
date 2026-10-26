@@ -19,7 +19,9 @@ SELECT
     c.created_at,
     v.id AS version_id,
     v.version_no,
-    v.byte_size
+    v.sha256,
+    v.byte_size,
+    v.analysis_notes
 FROM contents c
 JOIN LATERAL (
     SELECT * FROM content_versions
