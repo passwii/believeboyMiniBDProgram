@@ -13,9 +13,13 @@ import (
 type Querier interface {
 	CreateAdmin(ctx context.Context, arg CreateAdminParams) (AdminUser, error)
 	CreateAdminSession(ctx context.Context, arg CreateAdminSessionParams) (AdminSession, error)
+	CreateContent(ctx context.Context, arg CreateContentParams) (Content, error)
+	CreateContentVersion(ctx context.Context, arg CreateContentVersionParams) (ContentVersion, error)
 	GetAdminByEmail(ctx context.Context, lower string) (AdminUser, error)
 	GetAdminByID(ctx context.Context, id uuid.UUID) (AdminUser, error)
 	GetAdminSessionByHash(ctx context.Context, sessionHash []byte) (GetAdminSessionByHashRow, error)
+	GetContent(ctx context.Context, id uuid.UUID) (GetContentRow, error)
+	ListContents(ctx context.Context, arg ListContentsParams) ([]ListContentsRow, error)
 	RevokeAdminSession(ctx context.Context, arg RevokeAdminSessionParams) error
 	TouchAdminSession(ctx context.Context, arg TouchAdminSessionParams) error
 }
