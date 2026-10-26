@@ -11,16 +11,28 @@ import (
 )
 
 type Querier interface {
+	ConsumeViewerTicket(ctx context.Context, arg ConsumeViewerTicketParams) (ConsumeViewerTicketRow, error)
+	CreateAccessSession(ctx context.Context, arg CreateAccessSessionParams) (AccessSession, error)
 	CreateAdmin(ctx context.Context, arg CreateAdminParams) (AdminUser, error)
 	CreateAdminSession(ctx context.Context, arg CreateAdminSessionParams) (AdminSession, error)
 	CreateContent(ctx context.Context, arg CreateContentParams) (Content, error)
 	CreateContentVersion(ctx context.Context, arg CreateContentVersionParams) (ContentVersion, error)
+	CreateShare(ctx context.Context, arg CreateShareParams) (Share, error)
+	CreateViewerTicket(ctx context.Context, arg CreateViewerTicketParams) (ViewerTicket, error)
+	GetAccessSessionByHash(ctx context.Context, sessionHash []byte) (GetAccessSessionByHashRow, error)
+	GetAccessSessionByID(ctx context.Context, id uuid.UUID) (GetAccessSessionByIDRow, error)
 	GetAdminByEmail(ctx context.Context, lower string) (AdminUser, error)
 	GetAdminByID(ctx context.Context, id uuid.UUID) (AdminUser, error)
 	GetAdminSessionByHash(ctx context.Context, sessionHash []byte) (GetAdminSessionByHashRow, error)
 	GetContent(ctx context.Context, id uuid.UUID) (GetContentRow, error)
+	GetShareByID(ctx context.Context, id uuid.UUID) (GetShareByIDRow, error)
+	GetShareByTokenHash(ctx context.Context, tokenHash []byte) (GetShareByTokenHashRow, error)
 	ListContents(ctx context.Context, arg ListContentsParams) ([]ListContentsRow, error)
+	ListShares(ctx context.Context, arg ListSharesParams) ([]ListSharesRow, error)
+	ResetSharePIN(ctx context.Context, arg ResetSharePINParams) error
+	RevokeAccessSessionsByShare(ctx context.Context, arg RevokeAccessSessionsByShareParams) error
 	RevokeAdminSession(ctx context.Context, arg RevokeAdminSessionParams) error
+	RevokeShare(ctx context.Context, arg RevokeShareParams) error
 	TouchAdminSession(ctx context.Context, arg TouchAdminSessionParams) error
 }
 

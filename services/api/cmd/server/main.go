@@ -15,6 +15,8 @@ import (
 	"github.com/believeboy/mini-bd-program/services/api/internal/content"
 	"github.com/believeboy/mini-bd-program/services/api/internal/database"
 	"github.com/believeboy/mini-bd-program/services/api/internal/httpapi"
+	"github.com/believeboy/mini-bd-program/services/api/internal/security"
+	"github.com/believeboy/mini-bd-program/services/api/internal/share"
 	"github.com/believeboy/mini-bd-program/services/api/internal/storage"
 	"github.com/believeboy/mini-bd-program/services/api/internal/store"
 )
@@ -41,6 +43,12 @@ func main() {
 		os.Exit(1)
 	}
 	contentService := content.NewService(content.NewPostgresRepository(pool), objectStore, cfg.MaxUploadBytes)
+	tokenCipher, err := security.NewCipher(cfg.TokenEncryptionKey)
+	if err != nil {
+		logger.Error("configure token cipher", "error", err)
+		os.Exit(1)
+	}
+	shareService := share.NewService(share.NewPostgresRepository(pool), contentService, tokenCipher)
 
 	server := &http.Server{
 		Addr: cfg.HTTPAddr,
@@ -54,6 +62,8 @@ func main() {
 			Logger:             logger,
 			Content:            contentService,
 			MaxUploadBytes:     cfg.MaxUploadBytes,
+			Shares:             shareService,
+			ViewOrigin:         cfg.ViewOrigin,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,

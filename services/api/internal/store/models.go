@@ -97,10 +97,11 @@ type Share struct {
 }
 
 type ViewerTicket struct {
-	ID              uuid.UUID
-	AccessSessionID uuid.UUID
-	TicketHash      []byte
-	ExpiresAt       pgtype.Timestamptz
-	ConsumedAt      pgtype.Timestamptz
-	CreatedAt       pgtype.Timestamptz
+	ID                uuid.UUID
+	AccessSessionID   uuid.UUID
+	TicketHash        []byte
+	ExpiresAt         pgtype.Timestamptz
+	ConsumedAt        pgtype.Timestamptz
+	CreatedAt         pgtype.Timestamptz
+	SessionCiphertext []byte
 }

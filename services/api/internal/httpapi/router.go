@@ -27,6 +27,8 @@ type Dependencies struct {
 	Logger             *slog.Logger
 	Content            *content.Service
 	MaxUploadBytes     int64
+	Shares             adminShareService
+	ViewOrigin         string
 }
 
 func NewRouter(deps Dependencies) http.Handler {
@@ -61,6 +63,16 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Get("/contents", contentHandlers.list)
 					r.Post("/contents", contentHandlers.upload)
 					r.Get("/contents/{id}", contentHandlers.get)
+				})
+			}
+			if deps.Shares != nil {
+				shareHandlers := newAdminShareHandlers(deps)
+				r.Group(func(r chi.Router) {
+					r.Use(adminSessionMiddleware(deps))
+					r.Get("/shares", shareHandlers.list)
+					r.Post("/shares", shareHandlers.create)
+					r.Post("/shares/{id}/revoke", shareHandlers.revoke)
+					r.Post("/shares/{id}/reset-pin", shareHandlers.resetPIN)
 				})
 			}
 		})
