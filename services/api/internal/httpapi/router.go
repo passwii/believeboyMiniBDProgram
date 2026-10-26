@@ -2,10 +2,14 @@ package httpapi
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/believeboy/mini-bd-program/services/api/internal/adminauth"
 )
 
 type Pinger interface {
@@ -13,7 +17,13 @@ type Pinger interface {
 }
 
 type Dependencies struct {
-	Database Pinger
+	Database           Pinger
+	AdminAuth          *adminauth.Service
+	AdminCookieName    string
+	AdminSessionTTL    time.Duration
+	SecureCookies      bool
+	AllowedAdminOrigin string
+	Logger             *slog.Logger
 }
 
 func NewRouter(deps Dependencies) http.Handler {
@@ -32,6 +42,16 @@ func NewRouter(deps Dependencies) http.Handler {
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+
+	if deps.AdminAuth != nil {
+		handlers := newAdminAuthHandlers(deps)
+		router.Route("/api/v1/admin", func(r chi.Router) {
+			r.Use(originGuard(deps.AllowedAdminOrigin))
+			r.Post("/login", handlers.login)
+			r.Get("/me", handlers.me)
+			r.Post("/logout", handlers.logout)
+		})
+	}
 
 	return router
 }
