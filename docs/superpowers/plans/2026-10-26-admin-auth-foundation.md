@@ -85,7 +85,7 @@ indent_style = tab
 
 ```dotenv
 API_ADDR=:8080
-DATABASE_URL=postgres://believeboy:believeboy@localhost:5432/believeboy?sslmode=disable
+DATABASE_URL=postgres://believeboy:believeboy@localhost:5433/believeboy?sslmode=disable
 ADMIN_ORIGIN=http://admin.localhost:3000
 VIEW_ORIGIN=http://view.localhost:5173
 CONTENT_ORIGIN=http://content.localhost:8080
@@ -97,6 +97,7 @@ SECURE_COOKIES=false
 POSTGRES_DB=believeboy
 POSTGRES_USER=believeboy
 POSTGRES_PASSWORD=believeboy
+POSTGRES_PORT=5433
 MINIO_ROOT_USER=believeboy
 MINIO_ROOT_PASSWORD=believeboy-dev-only
 ```
@@ -146,7 +147,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-believeboy}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-believeboy}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -980,7 +981,7 @@ Run:
 go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 cd services/api && sqlc generate
 docker compose --env-file ../../.env.example -f ../../infra/compose.yaml up -d postgres
-cd ../.. && TEST_DATABASE_URL='postgres://believeboy:believeboy@localhost:5432/believeboy?sslmode=disable' make test
+cd ../.. && TEST_DATABASE_URL='postgres://believeboy:believeboy@localhost:5433/believeboy?sslmode=disable' make test
 ```
 
 Expected: sqlc generates `internal/store`, migration tests PASS, and `go test ./...` exits 0.
@@ -1372,7 +1373,7 @@ Run:
 
 ```bash
 docker compose --env-file .env.example -f infra/compose.yaml up -d postgres
-export DATABASE_URL='postgres://believeboy:believeboy@localhost:5432/believeboy?sslmode=disable'
+export DATABASE_URL='postgres://believeboy:believeboy@localhost:5433/believeboy?sslmode=disable'
 cd services/api
 go run ./cmd/migrate up
 printf 'dev-credential-1234\n' | go run ./cmd/admin create --email admin@example.com --credential-stdin
