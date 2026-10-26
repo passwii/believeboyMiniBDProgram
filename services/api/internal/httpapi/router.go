@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/believeboy/mini-bd-program/services/api/internal/adminauth"
+	"github.com/believeboy/mini-bd-program/services/api/internal/content"
 )
 
 type Pinger interface {
@@ -24,6 +25,8 @@ type Dependencies struct {
 	SecureCookies      bool
 	AllowedAdminOrigin string
 	Logger             *slog.Logger
+	Content            *content.Service
+	MaxUploadBytes     int64
 }
 
 func NewRouter(deps Dependencies) http.Handler {
@@ -50,6 +53,16 @@ func NewRouter(deps Dependencies) http.Handler {
 			r.Post("/login", handlers.login)
 			r.Get("/me", handlers.me)
 			r.Post("/logout", handlers.logout)
+
+			if deps.Content != nil {
+				contentHandlers := newAdminContentHandlers(deps)
+				r.Group(func(r chi.Router) {
+					r.Use(adminSessionMiddleware(deps))
+					r.Get("/contents", contentHandlers.list)
+					r.Post("/contents", contentHandlers.upload)
+					r.Get("/contents/{id}", contentHandlers.get)
+				})
+			}
 		})
 	}
 

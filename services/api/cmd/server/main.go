@@ -12,8 +12,10 @@ import (
 
 	"github.com/believeboy/mini-bd-program/services/api/internal/adminauth"
 	"github.com/believeboy/mini-bd-program/services/api/internal/config"
+	"github.com/believeboy/mini-bd-program/services/api/internal/content"
 	"github.com/believeboy/mini-bd-program/services/api/internal/database"
 	"github.com/believeboy/mini-bd-program/services/api/internal/httpapi"
+	"github.com/believeboy/mini-bd-program/services/api/internal/storage"
 	"github.com/believeboy/mini-bd-program/services/api/internal/store"
 )
 
@@ -33,6 +35,12 @@ func main() {
 
 	queries := store.New(pool)
 	adminAuth := adminauth.New(adminauth.NewPostgresStore(queries), cfg.AdminSessionTTL)
+	objectStore, err := storage.NewS3Store(cfg)
+	if err != nil {
+		logger.Error("configure object storage", "error", err)
+		os.Exit(1)
+	}
+	contentService := content.NewService(content.NewPostgresRepository(pool), objectStore, cfg.MaxUploadBytes)
 
 	server := &http.Server{
 		Addr: cfg.HTTPAddr,
@@ -44,6 +52,8 @@ func main() {
 			SecureCookies:      cfg.SecureCookies,
 			AllowedAdminOrigin: cfg.AdminOrigin,
 			Logger:             logger,
+			Content:            contentService,
+			MaxUploadBytes:     cfg.MaxUploadBytes,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
