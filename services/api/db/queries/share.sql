@@ -146,6 +146,11 @@ UPDATE access_sessions
 SET revoked_at = $2
 WHERE share_id = $1 AND revoked_at IS NULL;
 
+-- name: TouchAccessSession :exec
+UPDATE access_sessions
+SET last_seen_at = $2
+WHERE id = $1;
+
 -- name: CreateViewerTicket :one
 INSERT INTO viewer_tickets (
     id, access_session_id, ticket_hash, session_ciphertext, expires_at

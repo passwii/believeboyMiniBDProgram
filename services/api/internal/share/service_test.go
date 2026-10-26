@@ -69,6 +69,30 @@ func (f *fakeRepository) ResetPINAndRevokeSessions(_ context.Context, id uuid.UU
 	return nil
 }
 
+func (f *fakeRepository) CreateSession(context.Context, SessionInput) (SessionRecord, error) {
+	return SessionRecord{}, nil
+}
+
+func (f *fakeRepository) GetSessionByHash(context.Context, []byte) (SessionRecord, error) {
+	return SessionRecord{}, ErrShareNotFound
+}
+
+func (f *fakeRepository) GetSessionByID(context.Context, uuid.UUID) (SessionRecord, error) {
+	return SessionRecord{}, ErrShareNotFound
+}
+
+func (f *fakeRepository) TouchSession(context.Context, uuid.UUID, time.Time) error {
+	return nil
+}
+
+func (f *fakeRepository) CreateTicket(context.Context, TicketInput) error {
+	return nil
+}
+
+func (f *fakeRepository) ConsumeTicket(context.Context, []byte, time.Time) (TicketRecord, error) {
+	return TicketRecord{}, ErrShareNotFound
+}
+
 type fakeContentLookup struct {
 	item content.Content
 	err  error

@@ -49,6 +49,17 @@ func main() {
 		os.Exit(1)
 	}
 	shareService := share.NewService(share.NewPostgresRepository(pool), contentService, tokenCipher)
+	accessService := share.NewAccessService(
+		share.NewPostgresRepository(pool),
+		tokenCipher,
+		share.NewLimiter(),
+		cfg.ContentSigningKey,
+		cfg.ContentOrigin,
+		cfg.ViewerSessionTTL,
+		cfg.ViewerTicketTTL,
+		cfg.ContentURLTTL,
+		objectStore,
+	)
 
 	server := &http.Server{
 		Addr: cfg.HTTPAddr,
@@ -64,6 +75,9 @@ func main() {
 			MaxUploadBytes:     cfg.MaxUploadBytes,
 			Shares:             shareService,
 			ViewOrigin:         cfg.ViewOrigin,
+			Access:             accessService,
+			ViewerCookieName:   cfg.ViewerCookieName,
+			IPHashKey:          cfg.IPHashKey,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,

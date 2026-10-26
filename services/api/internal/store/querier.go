@@ -33,6 +33,7 @@ type Querier interface {
 	RevokeAccessSessionsByShare(ctx context.Context, arg RevokeAccessSessionsByShareParams) error
 	RevokeAdminSession(ctx context.Context, arg RevokeAdminSessionParams) error
 	RevokeShare(ctx context.Context, arg RevokeShareParams) error
+	TouchAccessSession(ctx context.Context, arg TouchAccessSessionParams) error
 	TouchAdminSession(ctx context.Context, arg TouchAdminSessionParams) error
 }
 

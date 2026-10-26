@@ -81,6 +81,47 @@ type PersistShareInput struct {
 	AdminID          uuid.UUID
 }
 
+type SessionInput struct {
+	ID            uuid.UUID
+	ShareID       uuid.UUID
+	SessionHash   []byte
+	ExpiresAt     time.Time
+	LastSeenAt    time.Time
+	IPHash        []byte
+	UserAgentHash []byte
+}
+
+type SessionRecord struct {
+	ID               uuid.UUID
+	ShareID          uuid.UUID
+	ExpiresAt        time.Time
+	RevokedAt        *time.Time
+	LastSeenAt       time.Time
+	ShareExpiresAt   time.Time
+	ShareRevokedAt   *time.Time
+	Type             string
+	Label            string
+	WatermarkText    string
+	ContentVersionID uuid.UUID
+	ObjectKey        string
+	ContentTitle     string
+}
+
+type TicketInput struct {
+	ID                uuid.UUID
+	AccessSessionID   uuid.UUID
+	TicketHash        []byte
+	SessionCiphertext []byte
+	ExpiresAt         time.Time
+}
+
+type TicketRecord struct {
+	AccessSessionID      uuid.UUID
+	SessionCiphertext    []byte
+	ShareID              uuid.UUID
+	ShareTokenCiphertext []byte
+}
+
 type Repository interface {
 	CreateShare(ctx context.Context, input PersistShareInput) (ShareRecord, error)
 	ListShares(ctx context.Context, limit, offset int32) ([]ShareRecord, error)
@@ -88,6 +129,12 @@ type Repository interface {
 	GetShareByID(ctx context.Context, id uuid.UUID) (ShareRecord, error)
 	RevokeShareAndSessions(ctx context.Context, id uuid.UUID, at time.Time) error
 	ResetPINAndRevokeSessions(ctx context.Context, id uuid.UUID, pinHash string, at time.Time) error
+	CreateSession(ctx context.Context, input SessionInput) (SessionRecord, error)
+	GetSessionByHash(ctx context.Context, sessionHash []byte) (SessionRecord, error)
+	GetSessionByID(ctx context.Context, id uuid.UUID) (SessionRecord, error)
+	TouchSession(ctx context.Context, id uuid.UUID, at time.Time) error
+	CreateTicket(ctx context.Context, input TicketInput) error
+	ConsumeTicket(ctx context.Context, ticketHash []byte, at time.Time) (TicketRecord, error)
 }
 
 type ContentLookup interface {

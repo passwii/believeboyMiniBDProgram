@@ -588,3 +588,19 @@ func (q *Queries) RevokeShare(ctx context.Context, arg RevokeShareParams) error 
 	_, err := q.db.Exec(ctx, revokeShare, arg.ID, arg.RevokedAt)
 	return err
 }
+
+const touchAccessSession = `-- name: TouchAccessSession :exec
+UPDATE access_sessions
+SET last_seen_at = $2
+WHERE id = $1
+`
+
+type TouchAccessSessionParams struct {
+	ID         uuid.UUID
+	LastSeenAt pgtype.Timestamptz
+}
+
+func (q *Queries) TouchAccessSession(ctx context.Context, arg TouchAccessSessionParams) error {
+	_, err := q.db.Exec(ctx, touchAccessSession, arg.ID, arg.LastSeenAt)
+	return err
+}

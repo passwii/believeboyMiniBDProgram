@@ -121,6 +121,76 @@ func (p *PostgresRepository) ResetPINAndRevokeSessions(ctx context.Context, id u
 	return nil
 }
 
+func (p *PostgresRepository) CreateSession(ctx context.Context, input SessionInput) (SessionRecord, error) {
+	row, err := p.queries.CreateAccessSession(ctx, store.CreateAccessSessionParams{
+		ID: input.ID, ShareID: input.ShareID, SessionHash: input.SessionHash,
+		ExpiresAt: timestamp(input.ExpiresAt), LastSeenAt: timestamp(input.LastSeenAt),
+		IpHash: input.IPHash, UserAgentHash: input.UserAgentHash,
+	})
+	if err != nil {
+		return SessionRecord{}, fmt.Errorf("create access session: %w", err)
+	}
+	return SessionRecord{
+		ID: row.ID, ShareID: row.ShareID, ExpiresAt: row.ExpiresAt.Time,
+		LastSeenAt: row.LastSeenAt.Time,
+	}, nil
+}
+
+func (p *PostgresRepository) GetSessionByHash(ctx context.Context, sessionHash []byte) (SessionRecord, error) {
+	row, err := p.queries.GetAccessSessionByHash(ctx, sessionHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return SessionRecord{}, ErrShareNotFound
+	}
+	if err != nil {
+		return SessionRecord{}, fmt.Errorf("get access session: %w", err)
+	}
+	return sessionFromHashRow(row), nil
+}
+
+func (p *PostgresRepository) GetSessionByID(ctx context.Context, id uuid.UUID) (SessionRecord, error) {
+	row, err := p.queries.GetAccessSessionByID(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return SessionRecord{}, ErrShareNotFound
+	}
+	if err != nil {
+		return SessionRecord{}, fmt.Errorf("get access session by id: %w", err)
+	}
+	return sessionFromIDRow(row), nil
+}
+
+func (p *PostgresRepository) TouchSession(ctx context.Context, id uuid.UUID, at time.Time) error {
+	return p.queries.TouchAccessSession(ctx, store.TouchAccessSessionParams{
+		ID: id, LastSeenAt: timestamp(at),
+	})
+}
+
+func (p *PostgresRepository) CreateTicket(ctx context.Context, input TicketInput) error {
+	_, err := p.queries.CreateViewerTicket(ctx, store.CreateViewerTicketParams{
+		ID: input.ID, AccessSessionID: input.AccessSessionID, TicketHash: input.TicketHash,
+		SessionCiphertext: input.SessionCiphertext, ExpiresAt: timestamp(input.ExpiresAt),
+	})
+	if err != nil {
+		return fmt.Errorf("create viewer ticket: %w", err)
+	}
+	return nil
+}
+
+func (p *PostgresRepository) ConsumeTicket(ctx context.Context, ticketHash []byte, at time.Time) (TicketRecord, error) {
+	row, err := p.queries.ConsumeViewerTicket(ctx, store.ConsumeViewerTicketParams{
+		TicketHash: ticketHash, ConsumedAt: timestamp(at),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return TicketRecord{}, ErrShareNotFound
+	}
+	if err != nil {
+		return TicketRecord{}, fmt.Errorf("consume viewer ticket: %w", err)
+	}
+	return TicketRecord{
+		AccessSessionID: row.AccessSessionID, SessionCiphertext: row.SessionCiphertext,
+		ShareID: row.ShareID, ShareTokenCiphertext: row.TokenCiphertext,
+	}, nil
+}
+
 func recordFromShare(row store.Share) ShareRecord {
 	return ShareRecord{
 		ID:               row.ID,
@@ -181,4 +251,24 @@ func timePointer(value pgtype.Timestamptz) *time.Time {
 	}
 	result := value.Time
 	return &result
+}
+
+func sessionFromHashRow(row store.GetAccessSessionByHashRow) SessionRecord {
+	return SessionRecord{
+		ID: row.SessionID, ShareID: row.ShareID, ExpiresAt: row.SessionExpiresAt.Time,
+		RevokedAt: timePointer(row.SessionRevokedAt), LastSeenAt: row.LastSeenAt.Time,
+		ShareExpiresAt: row.ShareExpiresAt.Time, ShareRevokedAt: timePointer(row.ShareRevokedAt),
+		Type: row.Type, Label: row.Label, WatermarkText: row.WatermarkText,
+		ContentVersionID: row.ContentVersionID, ObjectKey: row.ObjectKey, ContentTitle: row.ContentTitle,
+	}
+}
+
+func sessionFromIDRow(row store.GetAccessSessionByIDRow) SessionRecord {
+	return SessionRecord{
+		ID: row.SessionID, ShareID: row.ShareID, ExpiresAt: row.SessionExpiresAt.Time,
+		RevokedAt: timePointer(row.SessionRevokedAt), LastSeenAt: row.LastSeenAt.Time,
+		ShareExpiresAt: row.ShareExpiresAt.Time, ShareRevokedAt: timePointer(row.ShareRevokedAt),
+		Type: row.Type, Label: row.Label, WatermarkText: row.WatermarkText,
+		ContentVersionID: row.ContentVersionID, ObjectKey: row.ObjectKey, ContentTitle: row.ContentTitle,
+	}
 }

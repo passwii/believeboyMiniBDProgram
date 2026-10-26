@@ -29,6 +29,9 @@ type Dependencies struct {
 	MaxUploadBytes     int64
 	Shares             adminShareService
 	ViewOrigin         string
+	Access             viewerAccessService
+	ViewerCookieName   string
+	IPHashKey          []byte
 }
 
 func NewRouter(deps Dependencies) http.Handler {
@@ -76,6 +79,18 @@ func NewRouter(deps Dependencies) http.Handler {
 				})
 			}
 		})
+	}
+
+	if deps.Access != nil {
+		publicHandlers := newPublicShareHandlers(deps)
+		router.Get("/api/v1/shares/{token}/status", publicHandlers.status)
+		router.Post("/api/v1/shares/{token}/unlock", publicHandlers.unlockH5)
+		router.Post("/api/v1/miniapp/shares/{token}/unlock", publicHandlers.unlockMini)
+		router.Get("/api/v1/viewer/session", publicHandlers.session)
+		router.Post("/api/v1/viewer/heartbeat", publicHandlers.heartbeat)
+		router.Post("/api/v1/viewer/content-url", publicHandlers.contentURL)
+		router.Get("/enter", publicHandlers.enter)
+		router.Get("/c/{signedToken}", publicHandlers.content)
 	}
 
 	return router
