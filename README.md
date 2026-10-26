@@ -1,5 +1,7 @@
 # BelieveBoy Mini Program
 
+[![CI](https://github.com/passwii/believeboyMiniBDProgram/actions/workflows/ci.yml/badge.svg)](https://github.com/passwii/believeboyMiniBDProgram/actions/workflows/ci.yml)
+
 Private HTML proposal delivery system with a WeChat mini program, responsive H5
 viewer, Next.js admin console, and Go API.
 
