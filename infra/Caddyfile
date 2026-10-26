@@ -1,0 +1,35 @@
+{
+  email {$ACME_EMAIL:ops@localhost}
+}
+
+{$ADMIN_HOST:admin.localhost} {
+  handle /api/* {
+    reverse_proxy api:8080
+  }
+  handle {
+    reverse_proxy admin:3000
+  }
+}
+
+{$VIEW_HOST:view.localhost} {
+  handle /api/* {
+    reverse_proxy api:8080
+  }
+  handle /enter* {
+    reverse_proxy api:8080
+  }
+  handle {
+    reverse_proxy viewer:4173
+  }
+}
+
+{$CONTENT_HOST:content.localhost} {
+  handle /c/* {
+    reverse_proxy api:8080
+  }
+  respond 404
+}
+
+{$API_HOST:api.localhost} {
+  reverse_proxy api:8080
+}

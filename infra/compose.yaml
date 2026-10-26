@@ -1,0 +1,38 @@
+name: believeboy-mini-program
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-believeboy}
+      POSTGRES_USER: ${POSTGRES_USER:-believeboy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-believeboy}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-believeboy} -d ${POSTGRES_DB:-believeboy}",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-believeboy}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-believeboy-dev-only}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+volumes:
+  postgres-data:
+  minio-data:

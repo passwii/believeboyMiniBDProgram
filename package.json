@@ -1,0 +1,11 @@
+{
+  "name": "believeboy-mini-program",
+  "private": true,
+  "packageManager": "pnpm@10.18.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "check:web": "pnpm -r --if-present check"
+  }
+}
