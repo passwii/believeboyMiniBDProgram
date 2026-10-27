@@ -1,6 +1,8 @@
 # Security and Reliability Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+Status: Implemented and verified on 2026-10-27.
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Persist security-relevant audit events, rate-limit administrator logins, and periodically remove expired sessions, viewer tickets, and old audit rows.
 
@@ -62,12 +64,12 @@ Routes:
 GET /api/v1/admin/audit-events?limit=50&offset=0
 ```
 
-- [ ] Test audit metadata serialization and insertion against the PostgreSQL migration.
-- [ ] Test the authenticated list endpoint and verify it never returns hashes or secret fields.
-- [ ] Implement sqlc insert/list queries, Postgres adapter, and the authenticated read route.
-- [ ] Wire one recorder into admin, content, share, and viewer handlers.
-- [ ] Record login success/failure, logout, upload accepted/rejected, share created/revoked/PIN reset, PIN success/failure/limited, ticket consumed, content URL issued, and content served.
-- [ ] Run `go test ./internal/audit ./internal/httpapi` and commit `feat(audit): persist security events`.
+- [x] Test audit metadata serialization and insertion against the PostgreSQL migration.
+- [x] Test the authenticated list endpoint and verify it never returns hashes or secret fields.
+- [x] Implement sqlc insert/list queries, Postgres adapter, and the authenticated read route.
+- [x] Wire one recorder into admin, content, share, and viewer handlers.
+- [x] Record login success/failure, logout, upload accepted/rejected, share created/revoked/PIN reset, PIN success/failure/limited, ticket consumed, content URL issued, and content served.
+- [x] Run `go test ./internal/audit ./internal/httpapi` and commit `feat(audit): persist security events`.
 
 ---
 
@@ -90,12 +92,12 @@ type AdminLoginLimiter interface {
 }
 ```
 
-- [ ] Test allowed initial attempts, blocking after five failures, cooldown expiry, and success reset.
-- [ ] Test HTTP `429`, `Retry-After`, and unchanged generic credential errors.
-- [ ] Hash the normalized remote IP with configured `IPHashKey` before using it as the limiter key.
-- [ ] Check the limiter after request-shape validation and before Argon2id verification.
-- [ ] Record failed attempts only for invalid credentials and clear failures on successful login.
-- [ ] Run `go test ./internal/httpapi` and commit `feat(security): rate limit admin login`.
+- [x] Test allowed initial attempts, blocking after five failures, cooldown expiry, and success reset.
+- [x] Test HTTP `429`, `Retry-After`, and unchanged generic credential errors.
+- [x] Hash the normalized remote IP with configured `IPHashKey` before using it as the limiter key.
+- [x] Check the limiter after request-shape validation and before Argon2id verification.
+- [x] Record failed attempts only for invalid credentials and clear failures on successful login.
+- [x] Run `go test ./internal/httpapi` and commit `feat(security): rate limit admin login`.
 
 ---
 
@@ -120,12 +122,12 @@ type Store interface {
 func Run(ctx context.Context, store Store, logger *slog.Logger, interval time.Duration)
 ```
 
-- [ ] Test the cleanup runner's initial run, periodic runs, cancellation, and logged row counts with a real in-memory store.
-- [ ] Test SQL retention cleanup on PostgreSQL using expired and recent rows for each retained table.
-- [ ] Implement deletion rules: expired tickets after 24 hours, consumed tickets after 30 days, expired/revoked sessions after 30 days, audit rows after 180 days.
-- [ ] Run cleanup at process start and hourly; stop it with the server context.
-- [ ] Run `TEST_DATABASE_URL="$DATABASE_URL" go test -race ./...`, `go vet ./...`, `pnpm --dir apps/admin check`, and `pnpm --dir apps/viewer check`.
-- [ ] Commit `feat(maintenance): clean expired security records`.
+- [x] Test the cleanup runner's initial run, periodic runs, cancellation, and logged row counts with a real in-memory store.
+- [x] Test SQL retention cleanup on PostgreSQL using expired and recent rows for each retained table.
+- [x] Implement deletion rules: expired tickets after 24 hours, consumed tickets after 30 days, expired/revoked sessions after 30 days, audit rows after 180 days.
+- [x] Run cleanup at process start and hourly; stop it with the server context.
+- [x] Run `TEST_DATABASE_URL="$DATABASE_URL" go test -race ./...`, `go vet ./...`, `pnpm --dir apps/admin check`, and `pnpm --dir apps/viewer check`.
+- [x] Commit `feat(maintenance): clean expired security records`.
 
 ## Self-Review
 

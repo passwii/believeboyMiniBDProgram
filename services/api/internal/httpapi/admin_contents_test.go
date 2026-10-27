@@ -25,6 +25,7 @@ type fakeContentRepository struct {
 	records []content.Record
 	get     content.Record
 	getErr  error
+	audit   *fakeAuditService
 }
 
 func (f *fakeContentRepository) Create(_ context.Context, input content.PersistInput) (content.Record, error) {
@@ -55,6 +56,8 @@ func newTestRouterWithContent(t *testing.T) (http.Handler, *fakeContentRepositor
 	adminStore := newMemoryAdminStore(t)
 	adminService := adminauth.New(adminStore, 12*time.Hour)
 	repository := &fakeContentRepository{}
+	auditLog := &fakeAuditService{}
+	repository.audit = auditLog
 	contentService := content.NewService(repository, storage.NewMemoryStore(), 20<<20)
 	router := NewRouter(Dependencies{
 		AdminAuth:          adminService,
@@ -63,6 +66,7 @@ func newTestRouterWithContent(t *testing.T) (http.Handler, *fakeContentRepositor
 		AllowedAdminOrigin: httpTestOrigin,
 		Content:            contentService,
 		MaxUploadBytes:     20 << 20,
+		Audit:              auditLog,
 	})
 	return router, repository
 }
@@ -151,10 +155,13 @@ func TestContentUploadCreatesVersion(t *testing.T) {
 	if len(repository.created) != 1 {
 		t.Fatalf("repository calls = %d", len(repository.created))
 	}
+	if len(repository.audit.events) < 2 || repository.audit.events[len(repository.audit.events)-1].EventType != "CONTENT_UPLOAD_ACCEPTED" {
+		t.Fatalf("audit events = %+v", repository.audit.events)
+	}
 }
 
 func TestContentUploadRejectsMissingFile(t *testing.T) {
-	router, _ := newTestRouterWithContent(t)
+	router, repository := newTestRouterWithContent(t)
 	cookie := authCookie(t, router)
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -168,10 +175,13 @@ func TestContentUploadRejectsMissingFile(t *testing.T) {
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d", response.Code)
 	}
+	if repository.audit.events[len(repository.audit.events)-1].EventType != "CONTENT_UPLOAD_REJECTED" {
+		t.Fatalf("audit events = %+v", repository.audit.events)
+	}
 }
 
 func TestContentUploadRejectsOversizedFile(t *testing.T) {
-	router, _ := newTestRouterWithContent(t)
+	router, repository := newTestRouterWithContent(t)
 	cookie := authCookie(t, router)
 	body, contentType := multipartFile(t, "large.html", "file", bytes.Repeat([]byte("x"), (20<<20)+1))
 
@@ -180,10 +190,13 @@ func TestContentUploadRejectsOversizedFile(t *testing.T) {
 	if response.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d", response.Code)
 	}
+	if repository.audit.events[len(repository.audit.events)-1].EventType != "CONTENT_UPLOAD_REJECTED" {
+		t.Fatalf("audit events = %+v", repository.audit.events)
+	}
 }
 
 func TestContentUploadRejectsExternalResources(t *testing.T) {
-	router, _ := newTestRouterWithContent(t)
+	router, repository := newTestRouterWithContent(t)
 	cookie := authCookie(t, router)
 	body, contentType := multipartFile(
 		t,
@@ -196,6 +209,9 @@ func TestContentUploadRejectsExternalResources(t *testing.T) {
 
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if len(repository.audit.events) < 2 || repository.audit.events[len(repository.audit.events)-1].EventType != "CONTENT_UPLOAD_REJECTED" {
+		t.Fatalf("audit events = %+v", repository.audit.events)
 	}
 }
 

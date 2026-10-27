@@ -21,6 +21,15 @@ The API listens on `http://localhost:8080` by default.
 The administrator command prompts for a credential without echoing it. For
 non-interactive setup, pipe the credential and pass `--credential-stdin`.
 
+Administrator security operations are rate-limited to five failed attempts per
+IP in ten minutes, followed by a fifteen-minute cooldown. Audit events are
+available to administrators at `GET /api/v1/admin/audit-events`; IP and
+User-Agent values are stored as keyed hashes. The API removes expired sessions
+and tickets hourly, and retains audit events for 180 days.
+
+The first-release admin login limiter is process-local and assumes one API
+instance. Use a shared limiter store before scaling the API horizontally.
+
 ## Frontend development
 
 ```bash

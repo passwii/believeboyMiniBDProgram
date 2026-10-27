@@ -12,6 +12,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/believeboy/mini-bd-program/services/api/internal/adminauth"
+	"github.com/believeboy/mini-bd-program/services/api/internal/audit"
 	"github.com/believeboy/mini-bd-program/services/api/internal/content"
 )
 
@@ -19,6 +21,8 @@ type adminContentHandlers struct {
 	service        *content.Service
 	maxUploadBytes int64
 	logger         *slog.Logger
+	audit          audit.ServiceAPI
+	ipHashKey      []byte
 }
 
 type analysisResponse struct {
@@ -53,6 +57,8 @@ func newAdminContentHandlers(deps Dependencies) adminContentHandlers {
 		service:        deps.Content,
 		maxUploadBytes: maxUploadBytes,
 		logger:         logger,
+		audit:          deps.Audit,
+		ipHashKey:      deps.IPHashKey,
 	}
 }
 
@@ -67,7 +73,7 @@ func (h adminContentHandlers) upload(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxUploadBytes+(1<<20))
 	reader, err := r.MultipartReader()
 	if err != nil {
-		writeError(w, r, http.StatusBadRequest, "INVALID_REQUEST", "上传请求必须使用 multipart/form-data")
+		h.rejectUpload(w, r, principal, http.StatusBadRequest, "INVALID_REQUEST", "上传请求必须使用 multipart/form-data")
 		return
 	}
 
@@ -83,10 +89,10 @@ func (h adminContentHandlers) upload(w http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			if isRequestTooLarge(err) {
-				writeError(w, r, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "HTML 文件不能超过 20 MiB")
+				h.rejectUpload(w, r, principal, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "HTML 文件不能超过 20 MiB")
 				return
 			}
-			writeError(w, r, http.StatusBadRequest, "INVALID_REQUEST", "上传内容无法读取")
+			h.rejectUpload(w, r, principal, http.StatusBadRequest, "INVALID_REQUEST", "上传内容无法读取")
 			return
 		}
 		if part.FormName() != "file" {
@@ -97,7 +103,7 @@ func (h adminContentHandlers) upload(w http.ResponseWriter, r *http.Request) {
 		fileCount++
 		if fileCount > 1 {
 			_ = part.Close()
-			writeError(w, r, http.StatusBadRequest, "INVALID_REQUEST", "每次只能上传一个 HTML 文件")
+			h.rejectUpload(w, r, principal, http.StatusBadRequest, "INVALID_REQUEST", "每次只能上传一个 HTML 文件")
 			return
 		}
 		filename = part.FileName()
@@ -105,19 +111,19 @@ func (h adminContentHandlers) upload(w http.ResponseWriter, r *http.Request) {
 		_ = part.Close()
 		if err != nil {
 			if isRequestTooLarge(err) {
-				writeError(w, r, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "HTML 文件不能超过 20 MiB")
+				h.rejectUpload(w, r, principal, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "HTML 文件不能超过 20 MiB")
 				return
 			}
-			writeError(w, r, http.StatusBadRequest, "INVALID_REQUEST", "上传内容无法读取")
+			h.rejectUpload(w, r, principal, http.StatusBadRequest, "INVALID_REQUEST", "上传内容无法读取")
 			return
 		}
 		if int64(len(data)) > h.maxUploadBytes {
-			writeError(w, r, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "HTML 文件不能超过 20 MiB")
+			h.rejectUpload(w, r, principal, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "HTML 文件不能超过 20 MiB")
 			return
 		}
 	}
 	if fileCount != 1 || filename == "" {
-		writeError(w, r, http.StatusBadRequest, "INVALID_REQUEST", "请上传一个 HTML 文件")
+		h.rejectUpload(w, r, principal, http.StatusBadRequest, "INVALID_REQUEST", "请上传一个 HTML 文件")
 		return
 	}
 
@@ -130,7 +136,21 @@ func (h adminContentHandlers) upload(w http.ResponseWriter, r *http.Request) {
 		h.writeCreateError(w, r, err)
 		return
 	}
+	recordAudit(r, h.audit, h.logger, h.ipHashKey, "CONTENT_UPLOAD_ACCEPTED", audit.ActorAdmin, &principal.ID, nil,
+		map[string]any{"content_id": created.ID, "version_id": created.VersionID, "byte_size": created.ByteSize})
 	writeJSON(w, http.StatusCreated, toContentResponse(created))
+}
+
+func (h adminContentHandlers) rejectUpload(
+	w http.ResponseWriter,
+	r *http.Request,
+	principal adminauth.Principal,
+	status int,
+	code, message string,
+) {
+	recordAudit(r, h.audit, h.logger, h.ipHashKey, "CONTENT_UPLOAD_REJECTED", audit.ActorAdmin,
+		&principal.ID, nil, map[string]any{"reason": code})
+	writeError(w, r, status, code, message)
 }
 
 func (h adminContentHandlers) list(w http.ResponseWriter, r *http.Request) {
@@ -179,18 +199,28 @@ func (h adminContentHandlers) get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h adminContentHandlers) writeCreateError(w http.ResponseWriter, r *http.Request, err error) {
+	principal, _ := adminPrincipal(r.Context())
+	auditCode := "INTERNAL_ERROR"
 	switch {
 	case errors.Is(err, content.ErrFileTooLarge):
+		auditCode = "FILE_TOO_LARGE"
 		writeError(w, r, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "HTML 文件不能超过 20 MiB")
 	case errors.Is(err, content.ErrUnsupportedFile):
+		auditCode = "UNSUPPORTED_FILE"
 		writeError(w, r, http.StatusUnsupportedMediaType, "UNSUPPORTED_FILE", "仅支持单个 .html 文件")
 	case errors.Is(err, content.ErrExternalResources):
+		auditCode = "EXTERNAL_RESOURCES"
 		writeError(w, r, http.StatusUnprocessableEntity, "EXTERNAL_RESOURCES", "HTML 不允许引用外部资源")
 	case errors.Is(err, content.ErrInvalidHTML):
+		auditCode = "INVALID_HTML"
 		writeError(w, r, http.StatusUnprocessableEntity, "INVALID_HTML", "HTML 内容无法解析")
 	default:
 		h.logger.ErrorContext(r.Context(), "create content failed", "error", err)
 		writeError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "保存方案失败")
+	}
+	if principal.ID != uuid.Nil {
+		recordAudit(r, h.audit, h.logger, h.ipHashKey, "CONTENT_UPLOAD_REJECTED", audit.ActorAdmin, &principal.ID, nil,
+			map[string]any{"reason": auditCode})
 	}
 }
 

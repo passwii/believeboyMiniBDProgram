@@ -170,6 +170,47 @@ func TestAdminLoginReturnsUniformError(t *testing.T) {
 	}
 }
 
+func TestAdminLoginRecordsSuccessAndFailureWithoutCredential(t *testing.T) {
+	adminStore := newMemoryAdminStore(t)
+	auditLog := &fakeAuditService{}
+	router := NewRouter(Dependencies{
+		AdminAuth:       adminauth.New(adminStore, 12*time.Hour),
+		AdminCookieName: "bb_admin_session", AdminSessionTTL: 12 * time.Hour,
+		AllowedAdminOrigin: httpTestOrigin, IPHashKey: []byte("audit test key"), Audit: auditLog,
+	})
+
+	valid := loginRequest(t, router)
+	if valid.Code != http.StatusNoContent {
+		t.Fatalf("valid login status = %d", valid.Code)
+	}
+	invalidBody := `{"email":"admin@example.com","credential":"wrong"}`
+	invalid := httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader(invalidBody))
+	invalid.Header.Set("Content-Type", "application/json")
+	invalid.Header.Set("Origin", httpTestOrigin)
+	invalidRecorder := httptest.NewRecorder()
+	router.ServeHTTP(invalidRecorder, invalid)
+	if invalidRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid login status = %d", invalidRecorder.Code)
+	}
+
+	if len(auditLog.events) != 2 {
+		t.Fatalf("audit events = %d, want 2", len(auditLog.events))
+	}
+	if auditLog.events[0].EventType != "ADMIN_LOGIN_SUCCESS" || auditLog.events[1].EventType != "ADMIN_LOGIN_FAILURE" {
+		t.Fatalf("event types = %q, %q", auditLog.events[0].EventType, auditLog.events[1].EventType)
+	}
+	if len(auditLog.events[0].IPHash) != 32 || len(auditLog.events[0].UserAgentHash) != 32 {
+		t.Fatalf("expected 32-byte HMAC hashes, got IP=%d UA=%d", len(auditLog.events[0].IPHash), len(auditLog.events[0].UserAgentHash))
+	}
+	if auditLog.events[0].RequestID == "" || auditLog.events[1].RequestID == "" {
+		t.Fatal("audit events must include request IDs")
+	}
+	if strings.Contains(string(auditLog.events[0].Metadata), httpTestCredential) ||
+		strings.Contains(string(auditLog.events[1].Metadata), "wrong") {
+		t.Fatal("audit metadata contains a credential")
+	}
+}
+
 func TestAdminMeRequiresCookie(t *testing.T) {
 	router := newTestAdminRouter(t)
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/me", nil)
@@ -236,5 +277,55 @@ func TestAdminWritesRejectForeignOrigin(t *testing.T) {
 
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("status = %d", recorder.Code)
+	}
+}
+
+func TestAdminWritesRejectMissingOrigin(t *testing.T) {
+	router := newTestAdminRouter(t)
+	body := `{"email":"admin@example.com","credential":"correct horse battery staple"}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+}
+
+func TestAdminLoginRateLimitsSixthFailure(t *testing.T) {
+	adminStore := newMemoryAdminStore(t)
+	auditLog := &fakeAuditService{}
+	router := NewRouter(Dependencies{
+		AdminAuth:       adminauth.New(adminStore, 12*time.Hour),
+		AdminCookieName: "bb_admin_session", AdminSessionTTL: 12 * time.Hour,
+		AllowedAdminOrigin: httpTestOrigin, IPHashKey: []byte("rate limit key"), Audit: auditLog,
+	})
+	for attempt := 1; attempt <= 5; attempt++ {
+		body := `{"email":"admin@example.com","credential":"incorrect"}`
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", httpTestOrigin)
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d status = %d", attempt, recorder.Code)
+		}
+	}
+	body := `{"email":"admin@example.com","credential":"correct horse battery staple"}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", httpTestOrigin)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("sixth attempt status = %d, want 429", recorder.Code)
+	}
+	if recorder.Header().Get("Retry-After") == "" {
+		t.Fatal("429 response is missing Retry-After")
+	}
+	if len(auditLog.events) != 6 || auditLog.events[5].EventType != "ADMIN_LOGIN_RATE_LIMITED" {
+		t.Fatalf("audit events = %+v", auditLog.events)
 	}
 }

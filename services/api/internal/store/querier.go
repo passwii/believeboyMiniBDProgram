@@ -8,6 +8,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
@@ -15,10 +16,15 @@ type Querier interface {
 	CreateAccessSession(ctx context.Context, arg CreateAccessSessionParams) (AccessSession, error)
 	CreateAdmin(ctx context.Context, arg CreateAdminParams) (AdminUser, error)
 	CreateAdminSession(ctx context.Context, arg CreateAdminSessionParams) (AdminSession, error)
+	CreateAuditEvent(ctx context.Context, arg CreateAuditEventParams) error
 	CreateContent(ctx context.Context, arg CreateContentParams) (Content, error)
 	CreateContentVersion(ctx context.Context, arg CreateContentVersionParams) (ContentVersion, error)
 	CreateShare(ctx context.Context, arg CreateShareParams) (Share, error)
 	CreateViewerTicket(ctx context.Context, arg CreateViewerTicketParams) (ViewerTicket, error)
+	DeleteOldAccessSessions(ctx context.Context, expiresAt pgtype.Timestamptz) (int64, error)
+	DeleteOldAdminSessions(ctx context.Context, expiresAt pgtype.Timestamptz) (int64, error)
+	DeleteOldAuditEvents(ctx context.Context, createdAt pgtype.Timestamptz) (int64, error)
+	DeleteOldViewerTickets(ctx context.Context, arg DeleteOldViewerTicketsParams) (int64, error)
 	GetAccessSessionByHash(ctx context.Context, sessionHash []byte) (GetAccessSessionByHashRow, error)
 	GetAccessSessionByID(ctx context.Context, id uuid.UUID) (GetAccessSessionByIDRow, error)
 	GetAdminByEmail(ctx context.Context, lower string) (AdminUser, error)
@@ -27,6 +33,7 @@ type Querier interface {
 	GetContent(ctx context.Context, id uuid.UUID) (GetContentRow, error)
 	GetShareByID(ctx context.Context, id uuid.UUID) (GetShareByIDRow, error)
 	GetShareByTokenHash(ctx context.Context, tokenHash []byte) (GetShareByTokenHashRow, error)
+	ListAuditEvents(ctx context.Context, arg ListAuditEventsParams) ([]ListAuditEventsRow, error)
 	ListContents(ctx context.Context, arg ListContentsParams) ([]ListContentsRow, error)
 	ListShares(ctx context.Context, arg ListSharesParams) ([]ListSharesRow, error)
 	ResetSharePIN(ctx context.Context, arg ResetSharePINParams) error

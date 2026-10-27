@@ -1,16 +1,19 @@
 package httpapi
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/believeboy/mini-bd-program/services/api/internal/adminauth"
+	"github.com/believeboy/mini-bd-program/services/api/internal/audit"
 )
 
 const maxAdminRequestBody = 16 << 10
@@ -21,6 +24,9 @@ type adminAuthHandlers struct {
 	sessionTTL time.Duration
 	secure     bool
 	logger     *slog.Logger
+	audit      audit.ServiceAPI
+	ipHashKey  []byte
+	limiter    *AdminLoginLimiter
 }
 
 type adminLoginRequest struct {
@@ -43,6 +49,9 @@ func newAdminAuthHandlers(deps Dependencies) adminAuthHandlers {
 		sessionTTL: ttl,
 		secure:     deps.SecureCookies,
 		logger:     logger,
+		audit:      deps.Audit,
+		ipHashKey:  deps.IPHashKey,
+		limiter:    NewAdminLoginLimiter(),
 	}
 }
 
@@ -63,16 +72,37 @@ func (h adminAuthHandlers) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.service.Login(r.Context(), payload.Email, payload.Credential, adminauth.SessionMeta{})
+	ipHash, userAgentHash := requestHashes(r, h.ipHashKey)
+	meta := adminauth.SessionMeta{IPHash: ipHash, UserAgentHash: userAgentHash}
+	limiterKey := hex.EncodeToString(ipHash)
+	now := time.Now().UTC()
+	if retryAfter := h.limiter.Check(limiterKey, now); retryAfter > 0 {
+		seconds := int(retryAfter.Seconds())
+		if retryAfter%time.Second != 0 {
+			seconds++
+		}
+		w.Header().Set("Retry-After", strconv.Itoa(seconds))
+		recordAudit(r, h.audit, h.logger, h.ipHashKey, "ADMIN_LOGIN_RATE_LIMITED", audit.ActorAdmin, nil, nil,
+			map[string]any{"retry_after_seconds": seconds})
+		writeError(w, r, http.StatusTooManyRequests, "RATE_LIMITED", "登录尝试过多，请稍后再试")
+		return
+	}
+	result, err := h.service.Login(r.Context(), payload.Email, payload.Credential, meta)
 	if errors.Is(err, adminauth.ErrInvalidCredentials) {
+		h.limiter.RecordFailure(limiterKey, now)
+		recordAudit(r, h.audit, h.logger, h.ipHashKey, "ADMIN_LOGIN_FAILURE", audit.ActorAdmin, nil, nil,
+			map[string]any{"reason": "invalid_credentials"})
 		writeError(w, r, http.StatusUnauthorized, "INVALID_CREDENTIALS", "邮箱或密码错误")
 		return
 	}
 	if err != nil {
+		recordAudit(r, h.audit, h.logger, h.ipHashKey, "ADMIN_LOGIN_ERROR", audit.ActorAdmin, nil, nil,
+			map[string]any{"reason": "service_error"})
 		h.logger.ErrorContext(r.Context(), "admin login failed", "error", err)
 		writeError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "登录失败，请稍后重试")
 		return
 	}
+	h.limiter.RecordSuccess(limiterKey)
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     h.cookieName,
@@ -84,6 +114,8 @@ func (h adminAuthHandlers) login(w http.ResponseWriter, r *http.Request) {
 		Expires:  result.ExpiresAt,
 		MaxAge:   int(h.sessionTTL.Seconds()),
 	})
+	recordAudit(r, h.audit, h.logger, h.ipHashKey, "ADMIN_LOGIN_SUCCESS", audit.ActorAdmin, &result.Principal.ID, nil,
+		map[string]any{"role": result.Principal.Role})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -111,10 +143,14 @@ func (h adminAuthHandlers) me(w http.ResponseWriter, r *http.Request) {
 func (h adminAuthHandlers) logout(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if cookie, err := r.Cookie(h.cookieName); err == nil {
+		principal, authErr := h.service.Authenticate(r.Context(), cookie.Value, adminauth.SessionMeta{})
 		if err := h.service.Logout(r.Context(), cookie.Value); err != nil {
 			h.logger.ErrorContext(r.Context(), "admin logout failed", "error", err)
 			writeError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "退出登录失败")
 			return
+		}
+		if authErr == nil {
+			recordAudit(r, h.audit, h.logger, h.ipHashKey, "ADMIN_LOGOUT", audit.ActorAdmin, &principal.ID, nil, nil)
 		}
 	}
 	h.clearCookie(w)
@@ -161,7 +197,7 @@ func originGuard(allowedOrigin string) func(http.Handler) http.Handler {
 				return
 			}
 			origin := r.Header.Get("Origin")
-			if origin != "" && origin != allowedOrigin {
+			if origin == "" || allowedOrigin == "" || origin != allowedOrigin {
 				writeError(w, r, http.StatusForbidden, "FORBIDDEN_ORIGIN", "请求来源不受信任")
 				return
 			}

@@ -4,6 +4,8 @@ sql:
     schema:
       - db/migrations/00001_init.sql
       - db/migrations/00002_viewer_ticket_session.sql
+      - db/migrations/00003_security_retention_indexes.sql
+      - db/migrations/00004_revocation_retention_indexes.sql
     queries: db/queries
     gen:
       go:

@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
+	"github.com/believeboy/mini-bd-program/services/api/internal/audit"
 	"github.com/believeboy/mini-bd-program/services/api/internal/security"
 	"github.com/believeboy/mini-bd-program/services/api/internal/share"
 )
@@ -23,7 +25,7 @@ type viewerAccessService interface {
 	Authenticate(ctx context.Context, session string) (share.SessionRecord, error)
 	ContentURL(ctx context.Context, session string) (share.ContentURLResult, error)
 	EnterTicket(ctx context.Context, ticket string) (share.TicketLoginResult, error)
-	ReadContent(ctx context.Context, signedToken string) ([]byte, error)
+	ReadContent(ctx context.Context, signedToken string) (share.ContentReadResult, error)
 }
 
 type publicShareHandlers struct {
@@ -33,6 +35,7 @@ type publicShareHandlers struct {
 	ipHashKey  []byte
 	viewOrigin string
 	logger     *slog.Logger
+	audit      audit.ServiceAPI
 }
 
 type unlockRequest struct {
@@ -46,7 +49,8 @@ func newPublicShareHandlers(deps Dependencies) publicShareHandlers {
 	}
 	return publicShareHandlers{
 		access: deps.Access, cookieName: deps.ViewerCookieName, secure: deps.SecureCookies,
-		ipHashKey: deps.IPHashKey, viewOrigin: strings.TrimRight(deps.ViewOrigin, "/"), logger: logger,
+		ipHashKey: deps.IPHashKey, viewOrigin: strings.TrimRight(deps.ViewOrigin, "/"),
+		logger: logger, audit: deps.Audit,
 	}
 }
 
@@ -78,10 +82,13 @@ func (h publicShareHandlers) unlockH5(w http.ResponseWriter, r *http.Request) {
 		r.Context(), chi.URLParam(r, "token"), payload.PIN, h.meta(r), false,
 	)
 	if err != nil {
+		h.recordUnlockFailure(r, err)
 		h.writeAccessError(w, r, err)
 		return
 	}
 	h.setSessionCookie(w, result.SessionToken, result.SessionExpiresAt)
+	recordAudit(r, h.audit, h.logger, h.ipHashKey, "VIEWER_PIN_SUCCESS", audit.ActorViewer,
+		&result.SessionID, &result.Share.ID, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -95,9 +102,12 @@ func (h publicShareHandlers) unlockMini(w http.ResponseWriter, r *http.Request) 
 		r.Context(), chi.URLParam(r, "token"), payload.PIN, h.meta(r), true,
 	)
 	if err != nil {
+		h.recordUnlockFailure(r, err)
 		h.writeAccessError(w, r, err)
 		return
 	}
+	recordAudit(r, h.audit, h.logger, h.ipHashKey, "VIEWER_PIN_SUCCESS", audit.ActorViewer,
+		&result.SessionID, &result.Share.ID, map[string]any{"client": "mini_program"})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ticket":     result.Ticket,
 		"expires_at": result.SessionExpiresAt.UTC().Format(time.RFC3339),
@@ -140,6 +150,8 @@ func (h publicShareHandlers) contentURL(w http.ResponseWriter, r *http.Request) 
 		h.writeAccessError(w, r, err)
 		return
 	}
+	recordAudit(r, h.audit, h.logger, h.ipHashKey, "VIEWER_CONTENT_URL_ISSUED", audit.ActorViewer,
+		&result.SessionID, &result.ShareID, nil)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"url": result.URL, "watermark_text": result.WatermarkText,
 		"expires_at": result.ExpiresAt.UTC().Format(time.RFC3339),
@@ -153,16 +165,20 @@ func (h publicShareHandlers) enter(w http.ResponseWriter, r *http.Request) {
 		h.writeAccessError(w, r, err)
 		return
 	}
+	recordAudit(r, h.audit, h.logger, h.ipHashKey, "VIEWER_TICKET_CONSUMED", audit.ActorViewer,
+		&result.SessionID, &result.ShareID, nil)
 	h.setSessionCookie(w, result.SessionToken, result.SessionExpiresAt)
 	http.Redirect(w, r, h.viewOrigin+"/s/"+url.PathEscape(result.ShareToken), http.StatusSeeOther)
 }
 
 func (h publicShareHandlers) content(w http.ResponseWriter, r *http.Request) {
-	data, err := h.access.ReadContent(r.Context(), chi.URLParam(r, "signedToken"))
+	result, err := h.access.ReadContent(r.Context(), chi.URLParam(r, "signedToken"))
 	if err != nil {
 		h.writeAccessError(w, r, err)
 		return
 	}
+	recordAudit(r, h.audit, h.logger, h.ipHashKey, "VIEWER_CONTENT_SERVED", audit.ActorViewer,
+		&result.SessionID, &result.ShareID, nil)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Disposition", "inline")
 	w.Header().Set("Cache-Control", "private, no-store")
@@ -170,7 +186,31 @@ func (h publicShareHandlers) content(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Content-Security-Policy", contentSecurityPolicy(h.viewOrigin))
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+	_, _ = w.Write(result.Data)
+}
+
+func (h publicShareHandlers) recordUnlockFailure(r *http.Request, err error) {
+	eventType := "VIEWER_PIN_FAILURE"
+	if errors.Is(err, share.ErrRateLimited) {
+		eventType = "VIEWER_PIN_RATE_LIMITED"
+	} else if errors.Is(err, share.ErrShareExpired) {
+		eventType = "VIEWER_EXPIRED_ACCESS"
+	} else if errors.Is(err, share.ErrShareRevoked) {
+		eventType = "VIEWER_REVOKED_ACCESS"
+	} else if !errors.Is(err, share.ErrPINRejected) && !errors.Is(err, share.ErrRateLimited) &&
+		!errors.Is(err, share.ErrShareExpired) && !errors.Is(err, share.ErrShareRevoked) {
+		return
+	}
+	var shareID *uuid.UUID
+	var operationError *share.ShareOperationError
+	if errors.As(err, &operationError) {
+		shareID = &operationError.ShareID
+	}
+	var rateLimit *share.RateLimitError
+	if errors.As(err, &rateLimit) {
+		shareID = &rateLimit.ShareID
+	}
+	recordAudit(r, h.audit, h.logger, h.ipHashKey, eventType, audit.ActorViewer, nil, shareID, nil)
 }
 
 func (h publicShareHandlers) authenticatedSession(r *http.Request) (sessionWithToken, error) {

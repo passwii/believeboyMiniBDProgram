@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/believeboy/mini-bd-program/services/api/internal/share"
 )
 
@@ -22,6 +24,7 @@ type fakeViewerAccess struct {
 	expiresAt         time.Time
 	unlockCalled      bool
 	unlockIssueTicket bool
+	audit             *fakeAuditService
 }
 
 func (f *fakeViewerAccess) Status(context.Context, string) (share.ShareStatus, error) {
@@ -39,7 +42,7 @@ func (f *fakeViewerAccess) Unlock(_ context.Context, _ string, _ string, _ share
 	}
 	return share.UnlockResult{
 		SessionToken: "viewer-session", SessionExpiresAt: f.expiresAt,
-		Ticket: "viewer-ticket",
+		Ticket: "viewer-ticket", SessionID: uuid.New(), Share: share.ShareRecord{ID: uuid.New()},
 	}, nil
 }
 
@@ -50,7 +53,7 @@ func (f *fakeViewerAccess) Authenticate(context.Context, string) (share.SessionR
 func (f *fakeViewerAccess) ContentURL(context.Context, string) (share.ContentURLResult, error) {
 	return share.ContentURLResult{
 		URL:           "https://content.example.test/c/signed",
-		WatermarkText: "group", ExpiresAt: f.expiresAt,
+		WatermarkText: "group", ExpiresAt: f.expiresAt, SessionID: uuid.New(), ShareID: uuid.New(),
 	}, nil
 }
 
@@ -60,18 +63,21 @@ func (f *fakeViewerAccess) EnterTicket(context.Context, string) (share.TicketLog
 	}
 	return share.TicketLoginResult{
 		SessionToken: "viewer-session", ShareToken: "share/token",
-		SessionExpiresAt: f.expiresAt,
+		SessionID: uuid.New(), ShareID: uuid.New(), SessionExpiresAt: f.expiresAt,
 	}, nil
 }
 
-func (f *fakeViewerAccess) ReadContent(context.Context, string) ([]byte, error) {
-	return f.content, f.readErr
+func (f *fakeViewerAccess) ReadContent(context.Context, string) (share.ContentReadResult, error) {
+	return share.ContentReadResult{Data: f.content, ShareID: uuid.New(), SessionID: uuid.New()}, f.readErr
 }
 
 func newPublicTestRouter(fake *fakeViewerAccess) http.Handler {
+	auditLog := &fakeAuditService{}
+	fake.audit = auditLog
 	return NewRouter(Dependencies{
 		Access: fake, ViewerCookieName: "bb_viewer_session",
 		ViewOrigin: "https://view.example.test", IPHashKey: bytes.Repeat([]byte{0x19}, 32),
+		Audit: auditLog,
 	})
 }
 
@@ -104,6 +110,9 @@ func TestPublicH5UnlockSetsCookie(t *testing.T) {
 	if len(recorder.Result().Cookies()) != 1 {
 		t.Fatalf("cookies = %+v", recorder.Result().Cookies())
 	}
+	if len(fake.audit.events) != 1 || fake.audit.events[0].EventType != "VIEWER_PIN_SUCCESS" {
+		t.Fatalf("audit events = %+v", fake.audit.events)
+	}
 }
 
 func TestPublicMiniUnlockReturnsTicket(t *testing.T) {
@@ -120,6 +129,9 @@ func TestPublicMiniUnlockReturnsTicket(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), `"ticket":"viewer-ticket"`) {
 		t.Fatalf("body = %s", recorder.Body.String())
+	}
+	if len(fake.audit.events) != 1 || fake.audit.events[0].EventType != "VIEWER_PIN_SUCCESS" {
+		t.Fatalf("audit events = %+v", fake.audit.events)
 	}
 }
 
@@ -152,6 +164,10 @@ func TestPublicContentHeadersAndEnterRedirect(t *testing.T) {
 	if enterRecorder.Header().Get("Location") != "https://view.example.test/s/share%2Ftoken" {
 		t.Fatalf("location = %q", enterRecorder.Header().Get("Location"))
 	}
+	if len(fake.audit.events) != 2 || fake.audit.events[0].EventType != "VIEWER_CONTENT_SERVED" ||
+		fake.audit.events[1].EventType != "VIEWER_TICKET_CONSUMED" {
+		t.Fatalf("audit events = %+v", fake.audit.events)
+	}
 }
 
 func TestPublicRateLimitResponse(t *testing.T) {
@@ -171,5 +187,31 @@ func TestPublicRateLimitResponse(t *testing.T) {
 	}
 	if recorder.Header().Get("Retry-After") != "900" {
 		t.Fatalf("retry-after = %q", recorder.Header().Get("Retry-After"))
+	}
+	if len(fake.audit.events) != 1 || fake.audit.events[0].EventType != "VIEWER_PIN_RATE_LIMITED" {
+		t.Fatalf("audit events = %+v", fake.audit.events)
+	}
+}
+
+func TestPublicPINFailureIsAuditedWithoutPIN(t *testing.T) {
+	fake := &fakeViewerAccess{
+		expiresAt: time.Now().Add(time.Hour),
+		unlockErr: &share.ShareOperationError{ShareID: uuid.New(), Cause: share.ErrPINRejected},
+	}
+	router := newPublicTestRouter(fake)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/shares/token/unlock",
+		strings.NewReader(`{"pin":"1234"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+	if len(fake.audit.events) != 1 || fake.audit.events[0].EventType != "VIEWER_PIN_FAILURE" {
+		t.Fatalf("audit events = %+v", fake.audit.events)
+	}
+	if strings.Contains(string(fake.audit.events[0].Metadata), "1234") {
+		t.Fatalf("audit contains PIN: %s", fake.audit.events[0].Metadata)
 	}
 }

@@ -22,6 +22,7 @@ type fakeAdminShareService struct {
 	reset     uuid.UUID
 	resetPIN  string
 	createErr error
+	audit     *fakeAuditService
 }
 
 func (f *fakeAdminShareService) Create(_ context.Context, input share.CreateInput) (share.Share, error) {
@@ -58,10 +59,12 @@ func newShareTestRouter(t *testing.T) (http.Handler, *fakeAdminShareService) {
 	store := newMemoryAdminStore(t)
 	auth := adminauth.New(store, 12*time.Hour)
 	service := &fakeAdminShareService{}
+	auditLog := &fakeAuditService{}
+	service.audit = auditLog
 	return NewRouter(Dependencies{
 		AdminAuth: auth, AdminCookieName: "bb_admin_session",
 		AdminSessionTTL: 12 * time.Hour, AllowedAdminOrigin: httpTestOrigin,
-		Shares: service, ViewOrigin: "https://view.example.test",
+		Shares: service, ViewOrigin: "https://view.example.test", Audit: auditLog,
 	}), service
 }
 
@@ -110,6 +113,9 @@ func TestAdminCreateShare(t *testing.T) {
 	if payload["miniapp_path"] != "/pages/open/index?t=share-token" {
 		t.Fatalf("miniapp_path = %v", payload["miniapp_path"])
 	}
+	if len(service.audit.events) < 2 || service.audit.events[len(service.audit.events)-1].EventType != "SHARE_CREATED" {
+		t.Fatalf("audit events = %+v", service.audit.events)
+	}
 }
 
 func TestAdminCreateShareRejectsInvalidPIN(t *testing.T) {
@@ -157,5 +163,9 @@ func TestAdminRevokeAndResetSharePIN(t *testing.T) {
 	router.ServeHTTP(resetResponse, reset)
 	if resetResponse.Code != http.StatusNoContent || service.reset != id || service.resetPIN != "5678" {
 		t.Fatalf("reset status = %d, reset = %v, pin = %q", resetResponse.Code, service.reset, service.resetPIN)
+	}
+	if len(service.audit.events) != 3 || service.audit.events[1].EventType != "SHARE_REVOKED" ||
+		service.audit.events[2].EventType != "SHARE_PIN_RESET" {
+		t.Fatalf("audit events = %+v", service.audit.events)
 	}
 }
