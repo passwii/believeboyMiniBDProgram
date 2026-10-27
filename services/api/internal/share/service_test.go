@@ -122,7 +122,7 @@ func newTestShareService(t *testing.T) (*Service, *fakeRepository) {
 		ID: contentID, VersionID: versionID, Title: "Proposal", Status: "ACTIVE",
 	}}
 	service := NewService(repository, lookup, cipher)
-	service.now = func() time.Time { return time.Date(2026, 10, 27, 1, 0, 0, 0, time.UTC) }
+	service.now = time.Now
 	return service, repository
 }
 

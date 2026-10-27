@@ -1,0 +1,5 @@
+<web-view wx:if="{{viewerUrl}}" src="{{viewerUrl}}"></web-view>
+<view wx:else class="missing">
+  <text class="missing-title">无法打开方案</text>
+  <text class="missing-copy">请返回分享页面重新输入密码。</text>
+</view>

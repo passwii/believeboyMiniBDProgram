@@ -1,0 +1,15 @@
+{
+  "pages": [
+    "pages/open/index",
+    "pages/viewer/index"
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#f6f0e5",
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "私密方案",
+    "backgroundColor": "#f6f0e5",
+    "backgroundTextStyle": "dark"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

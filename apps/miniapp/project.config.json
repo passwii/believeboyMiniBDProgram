@@ -1,0 +1,20 @@
+{
+  "description": "BelieveBoy private proposal viewer",
+  "packOptions": {
+    "ignore": []
+  },
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "compileHotReLoad": true
+  },
+  "compileType": "miniprogram",
+  "libVersion": "latest",
+  "appid": "touristappid",
+  "projectname": "believeboy-mini-program",
+  "miniprogramRoot": "miniprogram/",
+  "condition": {}
+}

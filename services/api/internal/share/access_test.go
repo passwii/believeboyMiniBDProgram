@@ -83,7 +83,7 @@ func newAccessFixture(t *testing.T) (*AccessService, *accessRepo, string) {
 	if err != nil {
 		t.Fatalf("HashCredential() error = %v", err)
 	}
-	now := time.Date(2026, 10, 27, 1, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	shareToken := "share-token"
 	tokenCiphertext, err := cipher.Encrypt([]byte(shareToken))
 	if err != nil {

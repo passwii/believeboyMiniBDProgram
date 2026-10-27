@@ -30,6 +30,7 @@ type AccessMeta struct {
 }
 
 type ShareStatus struct {
+	ShareID   uuid.UUID
 	State     string
 	Type      string
 	Label     string
@@ -98,7 +99,10 @@ func (s *AccessService) Status(ctx context.Context, rawToken string) (ShareStatu
 	} else if !now.Before(record.ExpiresAt) {
 		state = "EXPIRED"
 	}
-	return ShareStatus{State: state, Type: record.Type, Label: record.Label, ExpiresAt: record.ExpiresAt}, nil
+	return ShareStatus{
+		ShareID: record.ID, State: state, Type: record.Type,
+		Label: record.Label, ExpiresAt: record.ExpiresAt,
+	}, nil
 }
 
 func (s *AccessService) Unlock(

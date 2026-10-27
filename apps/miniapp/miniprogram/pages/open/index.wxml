@@ -1,0 +1,68 @@
+<view class="page">
+  <view class="orb orb-a"></view>
+  <view class="orb orb-b"></view>
+
+  <view class="brand">
+    <view class="brand-mark">BB</view>
+    <view>
+      <text class="brand-name">BelieveBoy</text>
+      <text class="brand-sub">PRIVATE PROPOSAL</text>
+    </view>
+  </view>
+
+  <block wx:if="{{phase === 'loading'}}">
+    <view class="center">
+      <view class="loading-mark">BB</view>
+      <view class="loading-line"></view>
+      <text class="loading-copy">正在确认访问权限</text>
+    </view>
+  </block>
+
+  <block wx:elif="{{phase === 'error'}}">
+    <view class="error">
+      <text class="eyebrow">ACCESS UNAVAILABLE</text>
+      <text class="error-title">{{errorTitle}}</text>
+      <text class="error-copy">{{errorMessage}}</text>
+    </view>
+  </block>
+
+  <block wx:else>
+    <view class="content">
+      <view class="intro">
+        <text class="eyebrow">PROTECTED DELIVERY</text>
+        <text class="headline">这是一份\n<text class="accent">私密方案。</text></text>
+        <text class="caption">输入发送者提供的四位密码。内容不会出现在搜索结果或公开链接中。</text>
+      </view>
+
+      <view class="unlock">
+        <text class="share-label">{{status.label}}</text>
+        <text class="unlock-title">输入访问密码</text>
+        <text class="unlock-help">密码为 4 位数字</text>
+        <input
+          class="pin-input"
+          type="number"
+          maxlength="4"
+          focus="{{phase === 'locked'}}"
+          value="{{pin}}"
+          bindinput="onPinInput"
+          confirm-type="done"
+          bindconfirm="unlock"
+        />
+        <text wx:if="{{pinError}}" class="pin-error">{{pinError}}{{retryAfter > 0 ? ' ' + retryAfter + ' 秒后可再次尝试。' : ''}}</text>
+        <button
+          class="unlock-button"
+          disabled="{{pin.length !== 4 || submitting || retryAfter > 0}}"
+          bindtap="unlock"
+        >
+          {{submitting ? '正在验证' : '进入方案'}}
+        </button>
+        <text class="footnote">短时会话 · 禁止公开索引 · 可随时撤销</text>
+      </view>
+
+      <view class="meta">
+        <text>{{status.type === 'PUBLIC' ? '群组分享' : '专属分享'}}</text>
+        <text>有效至 {{expiresText}}</text>
+      </view>
+    </view>
+  </block>
+</view>

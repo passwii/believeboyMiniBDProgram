@@ -1,0 +1,26 @@
+page {
+  --paper: #f6f0e5;
+  --paper-deep: #eae0cf;
+  --ink: #211d18;
+  --ink-soft: #574f45;
+  --muted: #8b8072;
+  --line: #d5c9b7;
+  --accent: #b54826;
+  --accent-soft: #f1d9cb;
+  --danger: #9e3424;
+  min-height: 100%;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "PingFang SC", "Hiragino Sans GB", sans-serif;
+}
+
+view,
+text,
+button,
+input {
+  box-sizing: border-box;
+}
+
+button::after {
+  border: 0;
+}

@@ -1,0 +1,119 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-deep: var(--paper-deep);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+}
+
+:root {
+  --paper: oklch(0.972 0.011 83);
+  --paper-deep: oklch(0.944 0.016 80);
+  --ink: oklch(0.215 0.015 72);
+  --ink-soft: oklch(0.39 0.014 70);
+  --muted: oklch(0.55 0.018 73);
+  --line: oklch(0.855 0.016 79);
+  --accent: oklch(0.52 0.16 35);
+  --accent-soft: oklch(0.91 0.045 47);
+  --danger: oklch(0.49 0.16 28);
+  --warning: oklch(0.62 0.13 67);
+  --success: oklch(0.48 0.08 145);
+  --selection: oklch(0.88 0.06 49);
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  background: var(--paper);
+}
+
+body {
+  min-height: 100dvh;
+  margin: 0;
+  background:
+    radial-gradient(
+      circle at 88% -10%,
+      color-mix(in oklab, var(--accent-soft) 55%, transparent) 0,
+      transparent 34rem
+    ),
+    var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans), "Noto Sans SC", sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--selection);
+  color: var(--ink);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+}
+
+input[type="file"]::file-selector-button {
+  margin-right: 0.8rem;
+  border: 0;
+  border-radius: 6px;
+  background: var(--paper-deep);
+  padding: 0.45rem 0.75rem;
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rise-in {
+  animation: rise-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}

@@ -6,6 +6,8 @@
     "node": ">=24"
   },
   "scripts": {
+    "dev:admin": "pnpm --dir apps/admin dev",
+    "dev:viewer": "pnpm --dir apps/viewer dev",
     "check:web": "pnpm -r --if-present check"
   }
 }

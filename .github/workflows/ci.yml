@@ -68,3 +68,43 @@ jobs:
           go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
           "$(go env GOPATH)/bin/sqlc" generate
           git diff --exit-code
+
+  web:
+    name: Web and Mini Program
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.0
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check admin
+        run: pnpm --dir apps/admin check
+
+      - name: Build admin
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: pnpm --dir apps/admin build
+
+      - name: Check viewer
+        run: pnpm --dir apps/viewer check
+
+      - name: Build viewer
+        run: pnpm --dir apps/viewer build
+
+      - name: Check mini program
+        run: pnpm --dir apps/miniapp check

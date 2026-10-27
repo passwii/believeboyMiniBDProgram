@@ -62,7 +62,8 @@ func (h publicShareHandlers) status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"state": status.State, "type": status.Type, "label": status.Label,
+		"share_id": status.ShareID, "state": status.State, "type": status.Type,
+		"label":      status.Label,
 		"expires_at": status.ExpiresAt.UTC().Format(time.RFC3339),
 	})
 }
@@ -111,6 +112,7 @@ func (h publicShareHandlers) session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
+		"share_id":      session.ShareID,
 		"content_title": session.ContentTitle, "label": session.Label,
 		"watermark_text": session.WatermarkText,
 		"expires_at":     session.ExpiresAt.UTC().Format(time.RFC3339),

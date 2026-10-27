@@ -1,0 +1,9 @@
+{
+  "desc": "Private share pages are not indexed",
+  "rules": [
+    {
+      "action": "disallow",
+      "page": "*"
+    }
+  ]
+}

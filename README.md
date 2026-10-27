@@ -21,6 +21,24 @@ The API listens on `http://localhost:8080` by default.
 The administrator command prompts for a credential without echoing it. For
 non-interactive setup, pipe the credential and pass `--credential-stdin`.
 
+## Frontend development
+
+```bash
+pnpm --dir apps/admin dev
+pnpm --dir apps/viewer dev
+```
+
+- Admin console: `http://admin.localhost:3000`
+- H5 viewer: `http://view.localhost:5173`
+- WeChat mini program: open `apps/miniapp` in WeChat Developer Tools
+
+The admin console proxies `/api` to `API_ORIGIN` (`http://localhost:8080` by
+default). The viewer does the same through the Vite dev proxy.
+
+Before building the mini program for a real environment, update
+`apps/miniapp/miniprogram/utils/config.ts` with the HTTPS API and viewer
+origins, and add both origins to the WeChat domain allowlist.
+
 ## Checks
 
 ```bash
