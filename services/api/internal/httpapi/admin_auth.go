@@ -19,14 +19,15 @@ import (
 const maxAdminRequestBody = 16 << 10
 
 type adminAuthHandlers struct {
-	service    *adminauth.Service
-	cookieName string
-	sessionTTL time.Duration
-	secure     bool
-	logger     *slog.Logger
-	audit      audit.ServiceAPI
-	ipHashKey  []byte
-	limiter    *AdminLoginLimiter
+	service       *adminauth.Service
+	cookieName    string
+	sessionTTL    time.Duration
+	secure        bool
+	logger        *slog.Logger
+	audit         audit.ServiceAPI
+	auditThrottle *AuditEventThrottle
+	ipHashKey     []byte
+	limiter       *AdminLoginLimiter
 }
 
 type adminLoginRequest struct {
@@ -44,14 +45,15 @@ func newAdminAuthHandlers(deps Dependencies) adminAuthHandlers {
 		ttl = 12 * time.Hour
 	}
 	return adminAuthHandlers{
-		service:    deps.AdminAuth,
-		cookieName: deps.AdminCookieName,
-		sessionTTL: ttl,
-		secure:     deps.SecureCookies,
-		logger:     logger,
-		audit:      deps.Audit,
-		ipHashKey:  deps.IPHashKey,
-		limiter:    NewAdminLoginLimiter(),
+		service:       deps.AdminAuth,
+		cookieName:    deps.AdminCookieName,
+		sessionTTL:    ttl,
+		secure:        deps.SecureCookies,
+		logger:        logger,
+		audit:         deps.Audit,
+		auditThrottle: deps.auditThrottle,
+		ipHashKey:     deps.IPHashKey,
+		limiter:       NewAdminLoginLimiter(),
 	}
 }
 
@@ -83,8 +85,10 @@ func (h adminAuthHandlers) login(w http.ResponseWriter, r *http.Request) {
 			seconds++
 		}
 		w.Header().Set("Retry-After", strconv.Itoa(seconds))
-		recordAudit(r, h.audit, h.logger, h.ipHashKey, "ADMIN_LOGIN_RATE_LIMITED", audit.ActorAdmin, nil, nil,
-			map[string]any{"retry_after_seconds": seconds})
+		if h.auditThrottle.Allow("ADMIN_LOGIN_RATE_LIMITED:"+limiterKey, now) {
+			recordAudit(r, h.audit, h.logger, h.ipHashKey, "ADMIN_LOGIN_RATE_LIMITED", audit.ActorAdmin, nil, nil,
+				map[string]any{"retry_after_seconds": seconds})
+		}
 		writeError(w, r, http.StatusTooManyRequests, "RATE_LIMITED", "登录尝试过多，请稍后再试")
 		return
 	}

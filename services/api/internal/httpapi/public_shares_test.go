@@ -227,6 +227,49 @@ func TestPublicRateLimitResponse(t *testing.T) {
 	}
 }
 
+func TestPublicBlockedAndExpiredAccessAuditEventsAreThrottled(t *testing.T) {
+	shareID := uuid.New()
+	tests := []struct {
+		name      string
+		err       error
+		status    int
+		eventType string
+	}{
+		{
+			name:   "rate limited",
+			err:    &share.RateLimitError{ShareID: shareID, RetryAfter: 15 * time.Minute},
+			status: http.StatusTooManyRequests, eventType: "VIEWER_PIN_RATE_LIMITED",
+		},
+		{
+			name:   "expired share",
+			err:    &share.ShareOperationError{ShareID: shareID, Cause: share.ErrShareExpired},
+			status: http.StatusGone, eventType: "VIEWER_EXPIRED_ACCESS",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &fakeViewerAccess{
+				expiresAt: time.Now().Add(time.Hour),
+				unlockErr: test.err,
+			}
+			router := newPublicTestRouter(fake)
+			for attempt := 0; attempt < 3; attempt++ {
+				request := httptest.NewRequest(http.MethodPost, "/api/v1/shares/token/unlock",
+					strings.NewReader(`{"pin":"1234"}`))
+				request.Header.Set("Content-Type", "application/json")
+				recorder := httptest.NewRecorder()
+				router.ServeHTTP(recorder, request)
+				if recorder.Code != test.status {
+					t.Fatalf("attempt %d status = %d, want %d", attempt, recorder.Code, test.status)
+				}
+			}
+			if len(fake.audit.events) != 1 || fake.audit.events[0].EventType != test.eventType {
+				t.Fatalf("audit events = %+v, want one %s event", fake.audit.events, test.eventType)
+			}
+		})
+	}
+}
+
 func TestPublicPINFailureIsAuditedWithoutPIN(t *testing.T) {
 	fake := &fakeViewerAccess{
 		expiresAt: time.Now().Add(time.Hour),

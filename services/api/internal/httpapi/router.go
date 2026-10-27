@@ -35,10 +35,14 @@ type Dependencies struct {
 	ViewerCookieName   string
 	IPHashKey          []byte
 	TrustedProxyCIDRs  []string
+	auditThrottle      *AuditEventThrottle
 }
 
 func NewRouter(deps Dependencies) http.Handler {
 	router := chi.NewRouter()
+	if deps.auditThrottle == nil {
+		deps.auditThrottle = NewAuditEventThrottle()
+	}
 	router.Use(middleware.RequestID)
 	if len(deps.TrustedProxyCIDRs) == 0 {
 		router.Use(middleware.ClientIPFromRemoteAddr)

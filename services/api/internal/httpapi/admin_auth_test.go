@@ -345,6 +345,18 @@ func TestAdminLoginRateLimitsSixthFailure(t *testing.T) {
 	if len(auditLog.events) != 6 || auditLog.events[5].EventType != "ADMIN_LOGIN_RATE_LIMITED" {
 		t.Fatalf("audit events = %+v", auditLog.events)
 	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", httpTestOrigin)
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("repeated blocked login status = %d", recorder.Code)
+	}
+	if len(auditLog.events) != 6 {
+		t.Fatalf("repeated blocked login wrote another audit event: %+v", auditLog.events)
+	}
 }
 
 func TestAdminLoginRateLimitIgnoresUntrustedForwardedFor(t *testing.T) {

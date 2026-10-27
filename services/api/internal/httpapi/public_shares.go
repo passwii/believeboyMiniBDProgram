@@ -27,13 +27,14 @@ type viewerAccessService interface {
 }
 
 type publicShareHandlers struct {
-	access     viewerAccessService
-	cookieName string
-	secure     bool
-	ipHashKey  []byte
-	viewOrigin string
-	logger     *slog.Logger
-	audit      audit.ServiceAPI
+	access        viewerAccessService
+	cookieName    string
+	secure        bool
+	ipHashKey     []byte
+	viewOrigin    string
+	logger        *slog.Logger
+	audit         audit.ServiceAPI
+	auditThrottle *AuditEventThrottle
 }
 
 type unlockRequest struct {
@@ -48,7 +49,7 @@ func newPublicShareHandlers(deps Dependencies) publicShareHandlers {
 	return publicShareHandlers{
 		access: deps.Access, cookieName: deps.ViewerCookieName, secure: deps.SecureCookies,
 		ipHashKey: deps.IPHashKey, viewOrigin: strings.TrimRight(deps.ViewOrigin, "/"),
-		logger: logger, audit: deps.Audit,
+		logger: logger, audit: deps.Audit, auditThrottle: deps.auditThrottle,
 	}
 }
 
@@ -207,6 +208,12 @@ func (h publicShareHandlers) recordUnlockFailure(r *http.Request, err error) {
 	var rateLimit *share.RateLimitError
 	if errors.As(err, &rateLimit) {
 		shareID = &rateLimit.ShareID
+	}
+	switch eventType {
+	case "VIEWER_PIN_RATE_LIMITED", "VIEWER_EXPIRED_ACCESS", "VIEWER_REVOKED_ACCESS":
+		if shareID == nil || !h.auditThrottle.Allow(eventType+":"+shareID.String(), time.Now().UTC()) {
+			return
+		}
 	}
 	recordAudit(r, h.audit, h.logger, h.ipHashKey, eventType, audit.ActorViewer, nil, shareID, nil)
 }

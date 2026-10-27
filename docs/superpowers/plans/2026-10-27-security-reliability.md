@@ -21,6 +21,7 @@ Status: Implemented and verified on 2026-10-27.
 - Audit rows include request ID and keyed HMAC hashes for IP and User-Agent.
 - Audit rows never contain credentials, PINs, raw share tokens, viewer cookies, or object keys.
 - Audit writes are best effort: failures are logged without changing a completed operation's response.
+- Repeated login/PIN block events are throttled, and throttle state is bounded.
 - Audit retention is 180 days.
 - Expired viewer tickets are removed 24 hours after expiry; consumed tickets are removed after 30 days.
 - Expired or revoked admin and viewer sessions are removed after 30 days.
@@ -89,16 +90,15 @@ GET /api/v1/admin/audit-events?limit=50&offset=0
 **Interfaces:**
 
 ```go
-type AdminLoginLimiter interface {
-    Check(key string, now time.Time) time.Duration
-    RecordFailure(key string, now time.Time)
-    RecordSuccess(key string)
-}
+func (l *AdminLoginLimiter) Begin(key string, now time.Time) (*adminLoginAttempt, time.Duration)
+func (a *adminLoginAttempt) Failed(now time.Time)
+func (a *adminLoginAttempt) Succeeded()
+func (a *adminLoginAttempt) Release(now time.Time)
 ```
 
 - [x] Test allowed initial attempts, blocking after five failures, cooldown expiry, and success reset.
 - [x] Test HTTP `429`, `Retry-After`, and unchanged generic credential errors.
-- [x] Hash the normalized remote IP with configured `IPHashKey` before using it as the limiter key.
+- [x] Hash the resolved client IP with configured `IPHashKey` before using it as the limiter key.
 - [x] Check the limiter after request-shape validation and before Argon2id verification.
 - [x] Record failed attempts only for invalid credentials and clear failures on successful login.
 - [x] Run `go test ./internal/httpapi` and commit `feat(security): rate limit admin login`.
@@ -139,6 +139,7 @@ func Run(ctx context.Context, store Store, logger *slog.Logger, interval time.Du
 - Administrator login limiting is process-local and assumes the single-instance first deployment.
 - Forwarded client IPs are accepted only from explicitly configured trusted proxy CIDRs.
 - Per-IP login state is bounded and stale entries are removed by periodic sweeps.
+- Repeated block audits are throttled by key with bounded in-memory state.
 - Viewer unlock metadata uses the same trusted client IP resolver as administrator login.
 - Cleanup covers `admin_sessions`, `viewer_tickets`, `access_sessions`, and `audit_events` with explicit retention cutoffs.
 - The admin audit API is included; a visual audit-log page is deferred to the next admin workflow pass.
