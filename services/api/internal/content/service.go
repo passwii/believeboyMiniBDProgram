@@ -1,6 +1,7 @@
 package content
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -212,6 +213,15 @@ func decodeAnalysis(title string, notesJSON []byte) (Analysis, error) {
 		Warnings:          []string{},
 	}
 	if len(notesJSON) == 0 {
+		return analysis, nil
+	}
+	trimmed := bytes.TrimSpace(notesJSON)
+	if len(trimmed) > 0 && trimmed[0] == '[' {
+		var legacyWarnings []string
+		if err := json.Unmarshal(trimmed, &legacyWarnings); err != nil {
+			return Analysis{}, fmt.Errorf("decode legacy analysis notes: %w", err)
+		}
+		analysis.Warnings = legacyWarnings
 		return analysis, nil
 	}
 	var notes struct {

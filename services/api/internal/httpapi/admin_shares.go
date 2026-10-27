@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/believeboy/mini-bd-program/services/api/internal/audit"
 	"github.com/believeboy/mini-bd-program/services/api/internal/share"
 )
 
@@ -26,6 +27,8 @@ type adminShareHandlers struct {
 	service    adminShareService
 	viewOrigin string
 	logger     *slog.Logger
+	audit      audit.ServiceAPI
+	ipHashKey  []byte
 }
 
 type createShareRequest struct {
@@ -67,6 +70,8 @@ func newAdminShareHandlers(deps Dependencies) adminShareHandlers {
 		service:    deps.Shares,
 		viewOrigin: strings.TrimRight(deps.ViewOrigin, "/"),
 		logger:     logger,
+		audit:      deps.Audit,
+		ipHashKey:  deps.IPHashKey,
 	}
 }
 
@@ -101,6 +106,8 @@ func (h adminShareHandlers) create(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err, "创建分享失败")
 		return
 	}
+	recordAudit(r, h.audit, h.logger, h.ipHashKey, "SHARE_CREATED", audit.ActorAdmin, &principal.ID, &created.ID,
+		map[string]any{"type": created.Type, "expires_at": created.ExpiresAt.UTC().Format(time.RFC3339)})
 	writeJSON(w, http.StatusCreated, h.response(created))
 }
 
@@ -140,6 +147,9 @@ func (h adminShareHandlers) revoke(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err, "撤销分享失败")
 		return
 	}
+	if principal, ok := adminPrincipal(r.Context()); ok {
+		recordAudit(r, h.audit, h.logger, h.ipHashKey, "SHARE_REVOKED", audit.ActorAdmin, &principal.ID, &id, nil)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -163,6 +173,9 @@ func (h adminShareHandlers) resetPIN(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.ResetPIN(r.Context(), id, payload.PIN); err != nil {
 		h.writeError(w, r, err, "重置密码失败")
 		return
+	}
+	if principal, ok := adminPrincipal(r.Context()); ok {
+		recordAudit(r, h.audit, h.logger, h.ipHashKey, "SHARE_PIN_RESET", audit.ActorAdmin, &principal.ID, &id, nil)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

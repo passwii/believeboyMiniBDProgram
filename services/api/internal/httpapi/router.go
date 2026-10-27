@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/believeboy/mini-bd-program/services/api/internal/adminauth"
+	"github.com/believeboy/mini-bd-program/services/api/internal/audit"
 	"github.com/believeboy/mini-bd-program/services/api/internal/content"
 )
 
@@ -25,6 +26,7 @@ type Dependencies struct {
 	SecureCookies      bool
 	AllowedAdminOrigin string
 	Logger             *slog.Logger
+	Audit              audit.ServiceAPI
 	Content            *content.Service
 	MaxUploadBytes     int64
 	Shares             adminShareService
@@ -32,12 +34,21 @@ type Dependencies struct {
 	Access             viewerAccessService
 	ViewerCookieName   string
 	IPHashKey          []byte
+	TrustedProxyCIDRs  []string
+	auditThrottle      *AuditEventThrottle
 }
 
 func NewRouter(deps Dependencies) http.Handler {
 	router := chi.NewRouter()
+	if deps.auditThrottle == nil {
+		deps.auditThrottle = NewAuditEventThrottle()
+	}
 	router.Use(middleware.RequestID)
-	router.Use(middleware.RealIP)
+	if len(deps.TrustedProxyCIDRs) == 0 {
+		router.Use(middleware.ClientIPFromRemoteAddr)
+	} else {
+		router.Use(middleware.ClientIPFromXFF(deps.TrustedProxyCIDRs...))
+	}
 	router.Use(middleware.Recoverer)
 
 	router.Get("/health/live", func(w http.ResponseWriter, r *http.Request) {
@@ -76,6 +87,13 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Post("/shares", shareHandlers.create)
 					r.Post("/shares/{id}/revoke", shareHandlers.revoke)
 					r.Post("/shares/{id}/reset-pin", shareHandlers.resetPIN)
+				})
+			}
+			if deps.Audit != nil {
+				auditHandlers := newAdminAuditHandlers(deps)
+				r.Group(func(r chi.Router) {
+					r.Use(adminSessionMiddleware(deps))
+					r.Get("/audit-events", auditHandlers.list)
 				})
 			}
 		})

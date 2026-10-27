@@ -11,10 +11,12 @@ import (
 	"time"
 
 	"github.com/believeboy/mini-bd-program/services/api/internal/adminauth"
+	"github.com/believeboy/mini-bd-program/services/api/internal/audit"
 	"github.com/believeboy/mini-bd-program/services/api/internal/config"
 	"github.com/believeboy/mini-bd-program/services/api/internal/content"
 	"github.com/believeboy/mini-bd-program/services/api/internal/database"
 	"github.com/believeboy/mini-bd-program/services/api/internal/httpapi"
+	"github.com/believeboy/mini-bd-program/services/api/internal/maintenance"
 	"github.com/believeboy/mini-bd-program/services/api/internal/security"
 	"github.com/believeboy/mini-bd-program/services/api/internal/share"
 	"github.com/believeboy/mini-bd-program/services/api/internal/storage"
@@ -37,6 +39,14 @@ func main() {
 
 	queries := store.New(pool)
 	adminAuth := adminauth.New(adminauth.NewPostgresStore(queries), cfg.AdminSessionTTL)
+	auditService := audit.NewService(audit.NewPostgresStore(pool))
+	processCtx, stopBackground := context.WithCancel(context.Background())
+	defer stopBackground()
+	maintenanceDone := make(chan struct{})
+	go func() {
+		defer close(maintenanceDone)
+		maintenance.Run(processCtx, maintenance.NewPostgresStore(pool), logger, time.Hour)
+	}()
 	objectStore, err := storage.NewS3Store(cfg)
 	if err != nil {
 		logger.Error("configure object storage", "error", err)
@@ -71,6 +81,7 @@ func main() {
 			SecureCookies:      cfg.SecureCookies,
 			AllowedAdminOrigin: cfg.AdminOrigin,
 			Logger:             logger,
+			Audit:              auditService,
 			Content:            contentService,
 			MaxUploadBytes:     cfg.MaxUploadBytes,
 			Shares:             shareService,
@@ -78,6 +89,7 @@ func main() {
 			Access:             accessService,
 			ViewerCookieName:   cfg.ViewerCookieName,
 			IPHashKey:          cfg.IPHashKey,
+			TrustedProxyCIDRs:  cfg.TrustedProxyCIDRs,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -102,4 +114,6 @@ func main() {
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Error("shutdown api", "error", err)
 	}
+	stopBackground()
+	<-maintenanceDone
 }

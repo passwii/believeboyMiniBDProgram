@@ -206,3 +206,13 @@ func TestCreateContentUsesFilenameWhenTitleMissing(t *testing.T) {
 		t.Fatalf("repository calls = %d", len(repository.created))
 	}
 }
+
+func TestGetContentSupportsLegacyAnalysisArray(t *testing.T) {
+	analysis, err := decodeAnalysis("Legacy", []byte(`[]`))
+	if err != nil {
+		t.Fatalf("decodeAnalysis() error = %v", err)
+	}
+	if analysis.Title != "Legacy" || analysis.ExternalResources == nil || analysis.Warnings == nil {
+		t.Fatalf("analysis = %+v", analysis)
+	}
+}

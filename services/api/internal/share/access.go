@@ -41,6 +41,7 @@ type UnlockResult struct {
 	SessionToken     string
 	SessionExpiresAt time.Time
 	Ticket           string
+	SessionID        uuid.UUID
 	Share            ShareRecord
 }
 
@@ -48,12 +49,34 @@ type ContentURLResult struct {
 	URL           string
 	WatermarkText string
 	ExpiresAt     time.Time
+	SessionID     uuid.UUID
+	ShareID       uuid.UUID
 }
 
 type TicketLoginResult struct {
 	SessionToken     string
 	ShareToken       string
+	SessionID        uuid.UUID
+	ShareID          uuid.UUID
 	SessionExpiresAt time.Time
+}
+
+type ContentReadResult struct {
+	Data      []byte
+	SessionID uuid.UUID
+	ShareID   uuid.UUID
+}
+
+type ShareOperationError struct {
+	ShareID uuid.UUID
+	Cause   error
+}
+
+func (e *ShareOperationError) Error() string { return e.Cause.Error() }
+func (e *ShareOperationError) Unwrap() error { return e.Cause }
+
+func withShareID(shareID uuid.UUID, err error) error {
+	return &ShareOperationError{ShareID: shareID, Cause: err}
 }
 
 type AccessService struct {
@@ -117,19 +140,19 @@ func (s *AccessService) Unlock(
 	}
 	now := s.now().UTC()
 	if record.RevokedAt != nil {
-		return UnlockResult{}, ErrShareRevoked
+		return UnlockResult{}, withShareID(record.ID, ErrShareRevoked)
 	}
 	if !now.Before(record.ExpiresAt) {
-		return UnlockResult{}, ErrShareExpired
+		return UnlockResult{}, withShareID(record.ID, ErrShareExpired)
 	}
 	ipID := hex.EncodeToString(meta.IPHash)
 	if decision := s.limiter.Check(record.ID, ipID, now); !decision.Allowed {
-		return UnlockResult{}, &RateLimitError{RetryAfter: decision.RetryAfter}
+		return UnlockResult{}, &RateLimitError{ShareID: record.ID, RetryAfter: decision.RetryAfter}
 	}
 	valid, err := security.VerifyCredential(record.PINHash, pin)
 	if err != nil || !valid {
 		s.limiter.RecordFailure(record.ID, ipID, now)
-		return UnlockResult{}, ErrPINRejected
+		return UnlockResult{}, withShareID(record.ID, ErrPINRejected)
 	}
 	s.limiter.RecordSuccess(record.ID, ipID)
 
@@ -155,7 +178,7 @@ func (s *AccessService) Unlock(
 	}
 
 	result := UnlockResult{
-		SessionToken: sessionRaw, SessionExpiresAt: expiresAt, Share: record,
+		SessionToken: sessionRaw, SessionExpiresAt: expiresAt, SessionID: session.ID, Share: record,
 	}
 	if !issueTicket {
 		return result, nil
@@ -179,6 +202,7 @@ func (s *AccessService) Unlock(
 }
 
 type RateLimitError struct {
+	ShareID    uuid.UUID
 	RetryAfter time.Duration
 }
 
@@ -226,6 +250,7 @@ func (s *AccessService) ContentURL(ctx context.Context, rawSession string) (Cont
 	return ContentURLResult{
 		URL:           s.contentOrigin + "/c/" + url.PathEscape(token),
 		WatermarkText: session.WatermarkText, ExpiresAt: expiresAt,
+		SessionID: session.ID, ShareID: session.ShareID,
 	}, nil
 }
 
@@ -250,30 +275,31 @@ func (s *AccessService) EnterTicket(ctx context.Context, rawTicket string) (Tick
 	}
 	return TicketLoginResult{
 		SessionToken: string(sessionRaw), ShareToken: string(shareRaw),
+		SessionID: session.ID, ShareID: session.ShareID,
 		SessionExpiresAt: session.ExpiresAt,
 	}, nil
 }
 
-func (s *AccessService) ReadContent(ctx context.Context, signedToken string) ([]byte, error) {
+func (s *AccessService) ReadContent(ctx context.Context, signedToken string) (ContentReadResult, error) {
 	claims, err := VerifyClaims(signedToken, s.signingKey)
 	if err != nil {
-		return nil, ErrSessionInvalid
+		return ContentReadResult{}, ErrSessionInvalid
 	}
 	session, err := s.repository.GetSessionByID(ctx, claims.SessionID)
 	if err != nil || session.ShareID != claims.ShareID || session.ContentVersionID != claims.VersionID {
-		return nil, ErrSessionInvalid
+		return ContentReadResult{}, ErrSessionInvalid
 	}
 	now := s.now().UTC()
 	if session.RevokedAt != nil || session.ShareRevokedAt != nil ||
 		!now.Before(session.ExpiresAt) || !now.Before(session.ShareExpiresAt) {
-		return nil, ErrSessionInvalid
+		return ContentReadResult{}, ErrSessionInvalid
 	}
 	data, err := s.contentStore.Get(ctx, session.ObjectKey)
 	if errors.Is(err, storage.ErrNotFound) {
-		return nil, ErrContentUnavailable
+		return ContentReadResult{}, ErrContentUnavailable
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read content object: %w", err)
+		return ContentReadResult{}, fmt.Errorf("read content object: %w", err)
 	}
-	return data, nil
+	return ContentReadResult{Data: data, SessionID: session.ID, ShareID: session.ShareID}, nil
 }
