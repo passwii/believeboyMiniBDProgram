@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/believeboy/mini-bd-program/services/api/internal/security"
 	"github.com/believeboy/mini-bd-program/services/api/internal/share"
 )
 
@@ -24,6 +25,7 @@ type fakeViewerAccess struct {
 	expiresAt         time.Time
 	unlockCalled      bool
 	unlockIssueTicket bool
+	unlockMetas       []share.AccessMeta
 	audit             *fakeAuditService
 }
 
@@ -34,9 +36,10 @@ func (f *fakeViewerAccess) Status(context.Context, string) (share.ShareStatus, e
 	}, f.statusErr
 }
 
-func (f *fakeViewerAccess) Unlock(_ context.Context, _ string, _ string, _ share.AccessMeta, ticket bool) (share.UnlockResult, error) {
+func (f *fakeViewerAccess) Unlock(_ context.Context, _ string, _ string, meta share.AccessMeta, ticket bool) (share.UnlockResult, error) {
 	f.unlockCalled = true
 	f.unlockIssueTicket = ticket
+	f.unlockMetas = append(f.unlockMetas, meta)
 	if f.unlockErr != nil {
 		return share.UnlockResult{}, f.unlockErr
 	}
@@ -112,6 +115,37 @@ func TestPublicH5UnlockSetsCookie(t *testing.T) {
 	}
 	if len(fake.audit.events) != 1 || fake.audit.events[0].EventType != "VIEWER_PIN_SUCCESS" {
 		t.Fatalf("audit events = %+v", fake.audit.events)
+	}
+}
+
+func TestPublicUnlockUsesForwardedClientIPFromTrustedProxy(t *testing.T) {
+	key := bytes.Repeat([]byte{0x29}, 32)
+	fake := &fakeViewerAccess{expiresAt: time.Now().Add(time.Hour)}
+	auditLog := &fakeAuditService{}
+	router := NewRouter(Dependencies{
+		Access: fake, ViewerCookieName: "bb_viewer_session",
+		ViewOrigin: "https://view.example.test", IPHashKey: key,
+		TrustedProxyCIDRs: []string{"10.0.0.0/8"}, Audit: auditLog,
+	})
+
+	for _, proxyIP := range []string{"10.0.0.1", "10.0.0.2"} {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/shares/token/unlock",
+			strings.NewReader(`{"pin":"1234"}`))
+		request.RemoteAddr = proxyIP + ":4321"
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("X-Forwarded-For", "198.51.100.42")
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusNoContent {
+			t.Fatalf("unlock status = %d, body = %s", recorder.Code, recorder.Body.String())
+		}
+	}
+	if len(fake.unlockMetas) != 2 {
+		t.Fatalf("unlock metadata count = %d, want 2", len(fake.unlockMetas))
+	}
+	want := security.HMAC(key, "198.51.100.42")
+	if !bytes.Equal(fake.unlockMetas[0].IPHash, want) || !bytes.Equal(fake.unlockMetas[1].IPHash, want) {
+		t.Fatalf("client IP hashes = %x, %x; want %x", fake.unlockMetas[0].IPHash, fake.unlockMetas[1].IPHash, want)
 	}
 }
 

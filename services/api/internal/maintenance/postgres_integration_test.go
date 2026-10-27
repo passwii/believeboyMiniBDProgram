@@ -40,9 +40,47 @@ func TestPostgresCleanupUsesRetentionCutoffs(t *testing.T) {
 	oldTicketID, consumedTicketID, recentConsumedTicketID, newTicketID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	oldAuditID, newAuditID := uuid.New(), uuid.New()
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), "DELETE FROM audit_events WHERE id IN ($1,$2)", oldAuditID, newAuditID)
-		_, _ = pool.Exec(context.Background(), "DELETE FROM admin_users WHERE id = $1", adminID)
-		_, _ = pool.Exec(context.Background(), "DELETE FROM contents WHERE id = $1", contentID)
+		checks := []struct {
+			name  string
+			query string
+			args  []any
+		}{
+			{"audit events", `SELECT count(*) FROM audit_events WHERE id IN ($1,$2)`, []any{oldAuditID, newAuditID}},
+			{"viewer tickets", `SELECT count(*) FROM viewer_tickets WHERE id IN ($1,$2,$3,$4)`, []any{oldTicketID, consumedTicketID, recentConsumedTicketID, newTicketID}},
+			{"access sessions", `SELECT count(*) FROM access_sessions WHERE id IN ($1,$2)`, []any{oldAccessID, newAccessID}},
+			{"admin sessions", `SELECT count(*) FROM admin_sessions WHERE id IN ($1,$2)`, []any{oldAdminSessionID, newAdminSessionID}},
+			{"shares", `SELECT count(*) FROM shares WHERE id = $1`, []any{shareID}},
+			{"content versions", `SELECT count(*) FROM content_versions WHERE id = $1`, []any{versionID}},
+			{"contents", `SELECT count(*) FROM contents WHERE id = $1`, []any{contentID}},
+			{"admin users", `SELECT count(*) FROM admin_users WHERE id = $1`, []any{adminID}},
+		}
+		for _, check := range checks {
+			var count int64
+			if err := pool.QueryRow(context.Background(), check.query, check.args...).Scan(&count); err != nil {
+				t.Errorf("verify %s fixture cleanup: %v", check.name, err)
+			} else if count != 0 {
+				t.Errorf("%s fixture rows remaining after cleanup = %d", check.name, count)
+			}
+		}
+	})
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		cleanup := []struct {
+			name  string
+			query string
+			args  []any
+		}{
+			{"audit events", "DELETE FROM audit_events WHERE id IN ($1,$2)", []any{oldAuditID, newAuditID}},
+			{"share", "DELETE FROM shares WHERE id = $1", []any{shareID}},
+			{"content", "DELETE FROM contents WHERE id = $1", []any{contentID}},
+			{"admin", "DELETE FROM admin_users WHERE id = $1", []any{adminID}},
+		}
+		for _, item := range cleanup {
+			if _, err := pool.Exec(cleanupCtx, item.query, item.args...); err != nil {
+				t.Errorf("delete %s test fixture: %v", item.name, err)
+			}
+		}
 	})
 
 	if _, err := pool.Exec(ctx, `INSERT INTO admin_users (id,email,credential_hash,role,status)

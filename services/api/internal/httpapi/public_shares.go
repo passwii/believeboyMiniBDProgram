@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -15,7 +14,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/believeboy/mini-bd-program/services/api/internal/audit"
-	"github.com/believeboy/mini-bd-program/services/api/internal/security"
 	"github.com/believeboy/mini-bd-program/services/api/internal/share"
 )
 
@@ -239,13 +237,10 @@ func (h publicShareHandlers) setSessionCookie(w http.ResponseWriter, token strin
 }
 
 func (h publicShareHandlers) meta(r *http.Request) share.AccessMeta {
-	ip := r.RemoteAddr
-	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-		ip = host
-	}
+	ipHash, userAgentHash := requestHashes(r, h.ipHashKey)
 	return share.AccessMeta{
-		IPHash:        security.HMAC(h.ipHashKey, ip),
-		UserAgentHash: security.HMAC(h.ipHashKey, r.UserAgent()),
+		IPHash:        ipHash,
+		UserAgentHash: userAgentHash,
 	}
 }
 

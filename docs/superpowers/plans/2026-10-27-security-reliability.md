@@ -17,6 +17,7 @@ Status: Implemented and verified on 2026-10-27.
 - The login limiter is in memory because the agreed first deployment runs a single API instance.
 - Login IPs use the TCP peer by default; forwarded IPs are trusted only for configured `TRUSTED_PROXY_CIDRS`.
 - Login attempts from the same IP are admitted one at a time; limiter state is periodically swept and capped.
+- Viewer PIN limits, session IP hashes, and admin login limits use the same resolved client IP.
 - Audit rows include request ID and keyed HMAC hashes for IP and User-Agent.
 - Audit rows never contain credentials, PINs, raw share tokens, viewer cookies, or object keys.
 - Audit writes are best effort: failures are logged without changing a completed operation's response.
@@ -138,5 +139,6 @@ func Run(ctx context.Context, store Store, logger *slog.Logger, interval time.Du
 - Administrator login limiting is process-local and assumes the single-instance first deployment.
 - Forwarded client IPs are accepted only from explicitly configured trusted proxy CIDRs.
 - Per-IP login state is bounded and stale entries are removed by periodic sweeps.
+- Viewer unlock metadata uses the same trusted client IP resolver as administrator login.
 - Cleanup covers `admin_sessions`, `viewer_tickets`, `access_sessions`, and `audit_events` with explicit retention cutoffs.
 - The admin audit API is included; a visual audit-log page is deferred to the next admin workflow pass.

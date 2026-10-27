@@ -7,6 +7,11 @@ import (
 	"github.com/believeboy/mini-bd-program/services/api/internal/audit"
 )
 
+const (
+	maxAuditListLimit  = 200
+	maxAuditListOffset = 100_000
+)
+
 type adminAuditHandlers struct {
 	service audit.ServiceAPI
 	logger  *slog.Logger
@@ -23,12 +28,12 @@ func newAdminAuditHandlers(deps Dependencies) adminAuditHandlers {
 func (h adminAuditHandlers) list(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	limit, err := intQuery(r, "limit", 50)
-	if err != nil {
+	if err != nil || limit < 1 || limit > maxAuditListLimit {
 		writeError(w, r, http.StatusBadRequest, "INVALID_REQUEST", "limit 参数不正确")
 		return
 	}
 	offset, err := intQuery(r, "offset", 0)
-	if err != nil {
+	if err != nil || offset < 0 || offset > maxAuditListOffset {
 		writeError(w, r, http.StatusBadRequest, "INVALID_REQUEST", "offset 参数不正确")
 		return
 	}
