@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,22 @@ const (
 type memoryAdminStore struct {
 	admins   map[string]adminauth.AdminRecord
 	sessions map[string]adminauth.SessionRecord
+}
+
+type blockingAdminStore struct {
+	*memoryAdminStore
+	entered chan struct{}
+	release <-chan struct{}
+}
+
+func (s *blockingAdminStore) FindAdminByEmail(ctx context.Context, email string) (adminauth.AdminRecord, error) {
+	s.entered <- struct{}{}
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+		return adminauth.AdminRecord{}, ctx.Err()
+	}
+	return s.memoryAdminStore.FindAdminByEmail(ctx, email)
 }
 
 func newMemoryAdminStore(t *testing.T) *memoryAdminStore {
@@ -327,5 +344,118 @@ func TestAdminLoginRateLimitsSixthFailure(t *testing.T) {
 	}
 	if len(auditLog.events) != 6 || auditLog.events[5].EventType != "ADMIN_LOGIN_RATE_LIMITED" {
 		t.Fatalf("audit events = %+v", auditLog.events)
+	}
+}
+
+func TestAdminLoginRateLimitIgnoresUntrustedForwardedFor(t *testing.T) {
+	adminStore := newMemoryAdminStore(t)
+	router := NewRouter(Dependencies{
+		AdminAuth:       adminauth.New(adminStore, 12*time.Hour),
+		AdminCookieName: "bb_admin_session", AdminSessionTTL: 12 * time.Hour,
+		AllowedAdminOrigin: httpTestOrigin, IPHashKey: []byte("rate limit key"),
+	})
+
+	for attempt := 1; attempt <= 6; attempt++ {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader(
+			`{"email":"admin@example.com","credential":"incorrect"}`))
+		request.RemoteAddr = "192.0.2.10:4321"
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", httpTestOrigin)
+		request.Header.Set("X-Forwarded-For", "198.51.100."+strconv.Itoa(attempt))
+		request.Header.Set("X-Real-IP", "198.51.101."+strconv.Itoa(attempt))
+		request.Header.Set("True-Client-IP", "198.51.102."+strconv.Itoa(attempt))
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, request)
+
+		want := http.StatusUnauthorized
+		if attempt == 6 {
+			want = http.StatusTooManyRequests
+		}
+		if recorder.Code != want {
+			t.Fatalf("attempt %d status = %d, want %d", attempt, recorder.Code, want)
+		}
+	}
+}
+
+func TestAdminLoginRateLimitUsesForwardedForFromTrustedProxy(t *testing.T) {
+	adminStore := newMemoryAdminStore(t)
+	router := NewRouter(Dependencies{
+		AdminAuth:          adminauth.New(adminStore, 12*time.Hour),
+		AdminCookieName:    "bb_admin_session",
+		AdminSessionTTL:    12 * time.Hour,
+		AllowedAdminOrigin: httpTestOrigin,
+		IPHashKey:          []byte("rate limit key"),
+		TrustedProxyCIDRs:  []string{"10.0.0.0/8"},
+	})
+
+	for attempt := 1; attempt <= 6; attempt++ {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader(
+			`{"email":"admin@example.com","credential":"incorrect"}`))
+		request.RemoteAddr = "10.0.0." + strconv.Itoa(attempt) + ":4321"
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", httpTestOrigin)
+		request.Header.Set("X-Forwarded-For", "198.51.100.42")
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, request)
+
+		want := http.StatusUnauthorized
+		if attempt == 6 {
+			want = http.StatusTooManyRequests
+		}
+		if recorder.Code != want {
+			t.Fatalf("attempt %d status = %d, want %d", attempt, recorder.Code, want)
+		}
+	}
+}
+
+func TestAdminLoginRateLimitsConcurrentAttemptsBeforeCredentialCheck(t *testing.T) {
+	release := make(chan struct{})
+	store := &blockingAdminStore{
+		memoryAdminStore: newMemoryAdminStore(t),
+		entered:          make(chan struct{}, 2),
+		release:          release,
+	}
+	router := NewRouter(Dependencies{
+		AdminAuth:          adminauth.New(store, 12*time.Hour),
+		AdminCookieName:    "bb_admin_session",
+		AdminSessionTTL:    12 * time.Hour,
+		AllowedAdminOrigin: httpTestOrigin,
+		IPHashKey:          []byte("rate limit key"),
+	})
+	sendLogin := func() int {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader(
+			`{"email":"admin@example.com","credential":"incorrect"}`))
+		request.RemoteAddr = "192.0.2.10:4321"
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", httpTestOrigin)
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, request)
+		return recorder.Code
+	}
+	firstResult := make(chan int, 1)
+	go func() { firstResult <- sendLogin() }()
+	select {
+	case <-store.entered:
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("first login did not reach credential lookup")
+	}
+
+	secondResult := make(chan int, 1)
+	go func() { secondResult <- sendLogin() }()
+	select {
+	case status := <-secondResult:
+		if status != http.StatusTooManyRequests {
+			close(release)
+			t.Fatalf("concurrent login status = %d, want %d", status, http.StatusTooManyRequests)
+		}
+	case <-time.After(200 * time.Millisecond):
+		close(release)
+		<-firstResult
+		t.Fatal("concurrent login entered credential verification instead of being rate limited")
+	}
+	close(release)
+	if status := <-firstResult; status != http.StatusUnauthorized {
+		t.Fatalf("first login status = %d, want %d", status, http.StatusUnauthorized)
 	}
 }

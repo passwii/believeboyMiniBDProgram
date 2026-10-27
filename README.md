@@ -27,6 +27,10 @@ available to administrators at `GET /api/v1/admin/audit-events`; IP and
 User-Agent values are stored as keyed hashes. The API removes expired sessions
 and tickets hourly, and retains audit events for 180 days.
 
+Client IPs are taken from the TCP peer by default. When running behind a reverse
+proxy, set `TRUSTED_PROXY_CIDRS` to the proxy CIDR ranges; only then will the API
+use `X-Forwarded-For` from those peers for rate limits and audit hashes.
+
 The first-release admin login limiter is process-local and assumes one API
 instance. Use a shared limiter store before scaling the API horizontally.
 

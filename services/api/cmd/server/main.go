@@ -42,7 +42,11 @@ func main() {
 	auditService := audit.NewService(audit.NewPostgresStore(pool))
 	processCtx, stopBackground := context.WithCancel(context.Background())
 	defer stopBackground()
-	go maintenance.Run(processCtx, maintenance.NewPostgresStore(pool), logger, time.Hour)
+	maintenanceDone := make(chan struct{})
+	go func() {
+		defer close(maintenanceDone)
+		maintenance.Run(processCtx, maintenance.NewPostgresStore(pool), logger, time.Hour)
+	}()
 	objectStore, err := storage.NewS3Store(cfg)
 	if err != nil {
 		logger.Error("configure object storage", "error", err)
@@ -85,6 +89,7 @@ func main() {
 			Access:             accessService,
 			ViewerCookieName:   cfg.ViewerCookieName,
 			IPHashKey:          cfg.IPHashKey,
+			TrustedProxyCIDRs:  cfg.TrustedProxyCIDRs,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -103,11 +108,12 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
-	stopBackground()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Error("shutdown api", "error", err)
 	}
+	stopBackground()
+	<-maintenanceDone
 }

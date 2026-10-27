@@ -34,12 +34,17 @@ type Dependencies struct {
 	Access             viewerAccessService
 	ViewerCookieName   string
 	IPHashKey          []byte
+	TrustedProxyCIDRs  []string
 }
 
 func NewRouter(deps Dependencies) http.Handler {
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
-	router.Use(middleware.RealIP)
+	if len(deps.TrustedProxyCIDRs) == 0 {
+		router.Use(middleware.ClientIPFromRemoteAddr)
+	} else {
+		router.Use(middleware.ClientIPFromXFF(deps.TrustedProxyCIDRs...))
+	}
 	router.Use(middleware.Recoverer)
 
 	router.Get("/health/live", func(w http.ResponseWriter, r *http.Request) {

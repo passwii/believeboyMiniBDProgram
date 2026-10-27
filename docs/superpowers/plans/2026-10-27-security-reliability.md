@@ -15,8 +15,11 @@ Status: Implemented and verified on 2026-10-27.
 - Administrator login allows 5 failed attempts per IP in a rolling 10-minute window, then blocks that IP for 15 minutes.
 - A successful login clears that IP's failed-attempt counter.
 - The login limiter is in memory because the agreed first deployment runs a single API instance.
+- Login IPs use the TCP peer by default; forwarded IPs are trusted only for configured `TRUSTED_PROXY_CIDRS`.
+- Login attempts from the same IP are admitted one at a time; limiter state is periodically swept and capped.
 - Audit rows include request ID and keyed HMAC hashes for IP and User-Agent.
 - Audit rows never contain credentials, PINs, raw share tokens, viewer cookies, or object keys.
+- Audit writes are best effort: failures are logged without changing a completed operation's response.
 - Audit retention is 180 days.
 - Expired viewer tickets are removed 24 hours after expiry; consumed tickets are removed after 30 days.
 - Expired or revoked admin and viewer sessions are removed after 30 days.
@@ -133,5 +136,7 @@ func Run(ctx context.Context, store Store, logger *slog.Logger, interval time.Du
 
 - Audit coverage includes all security and content operations listed above; no secrets are included in event payloads.
 - Administrator login limiting is process-local and assumes the single-instance first deployment.
+- Forwarded client IPs are accepted only from explicitly configured trusted proxy CIDRs.
+- Per-IP login state is bounded and stale entries are removed by periodic sweeps.
 - Cleanup covers `admin_sessions`, `viewer_tickets`, `access_sessions`, and `audit_events` with explicit retention cutoffs.
 - The admin audit API is included; a visual audit-log page is deferred to the next admin workflow pass.

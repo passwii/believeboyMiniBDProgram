@@ -25,12 +25,19 @@ func TestPostgresCleanupUsesRetentionCutoffs(t *testing.T) {
 		t.Fatalf("Open() error = %v", err)
 	}
 	t.Cleanup(pool.Close)
+	var redundantRetentionIndex int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_indexes WHERE indexname = 'audit_events_retention_idx'`).Scan(&redundantRetentionIndex); err != nil {
+		t.Fatalf("check audit retention index: %v", err)
+	}
+	if redundantRetentionIndex != 0 {
+		t.Fatalf("redundant audit retention indexes = %d, want 0", redundantRetentionIndex)
+	}
 
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	adminID, contentID, versionID, shareID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	oldAdminSessionID, newAdminSessionID := uuid.New(), uuid.New()
 	oldAccessID, newAccessID := uuid.New(), uuid.New()
-	oldTicketID, consumedTicketID, newTicketID := uuid.New(), uuid.New(), uuid.New()
+	oldTicketID, consumedTicketID, recentConsumedTicketID, newTicketID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	oldAuditID, newAuditID := uuid.New(), uuid.New()
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "DELETE FROM audit_events WHERE id IN ($1,$2)", oldAuditID, newAuditID)
@@ -84,6 +91,10 @@ func TestPostgresCleanupUsesRetentionCutoffs(t *testing.T) {
 		VALUES ($1,$2,$3,$4,$5,$6)`, consumedTicketID, newAccessID, consumedTicketID[:], []byte("cipher"), now.Add(time.Hour), now.Add(-31*24*time.Hour)); err != nil {
 		t.Fatalf("insert consumed ticket: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO viewer_tickets (id,access_session_id,ticket_hash,session_ciphertext,expires_at,consumed_at)
+		VALUES ($1,$2,$3,$4,$5,$6)`, recentConsumedTicketID, newAccessID, recentConsumedTicketID[:], []byte("cipher"), now.Add(-48*time.Hour), now.Add(-24*time.Hour)); err != nil {
+		t.Fatalf("insert recently consumed expired ticket: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO viewer_tickets (id,access_session_id,ticket_hash,session_ciphertext,expires_at)
 		VALUES ($1,$2,$3,$4,$5)`, newTicketID, newAccessID, newTicketID[:], []byte("cipher"), now.Add(time.Hour)); err != nil {
 		t.Fatalf("insert current ticket: %v", err)
@@ -103,7 +114,7 @@ func TestPostgresCleanupUsesRetentionCutoffs(t *testing.T) {
 	if counts.AdminSessions < 1 || counts.AccessSessions < 1 || counts.ViewerTickets < 2 || counts.AuditEvents < 1 {
 		t.Fatalf("cleanup counts = %+v", counts)
 	}
-	var oldAdmin, recentAdmin, oldAccess, recentAccess, oldTicket, consumedTicket, recentTicket, oldAudit, recentAudit int
+	var oldAdmin, recentAdmin, oldAccess, recentAccess, oldTicket, consumedTicket, recentConsumedTicket, recentTicket, oldAudit, recentAudit int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM admin_sessions WHERE id=$1`, oldAdminSessionID).Scan(&oldAdmin); err != nil {
 		t.Fatal(err)
 	}
@@ -122,6 +133,9 @@ func TestPostgresCleanupUsesRetentionCutoffs(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM viewer_tickets WHERE id=$1`, consumedTicketID).Scan(&consumedTicket); err != nil {
 		t.Fatal(err)
 	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM viewer_tickets WHERE id=$1`, recentConsumedTicketID).Scan(&recentConsumedTicket); err != nil {
+		t.Fatal(err)
+	}
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM viewer_tickets WHERE id=$1`, newTicketID).Scan(&recentTicket); err != nil {
 		t.Fatal(err)
 	}
@@ -132,8 +146,8 @@ func TestPostgresCleanupUsesRetentionCutoffs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if oldAdmin != 0 || recentAdmin != 1 || oldAccess != 0 || recentAccess != 1 ||
-		oldTicket != 0 || consumedTicket != 0 || recentTicket != 1 || oldAudit != 0 || recentAudit != 1 {
-		t.Fatalf("rows remaining = old-admin:%d admin:%d old-access:%d access:%d old-ticket:%d consumed-ticket:%d ticket:%d old-audit:%d audit:%d",
-			oldAdmin, recentAdmin, oldAccess, recentAccess, oldTicket, consumedTicket, recentTicket, oldAudit, recentAudit)
+		oldTicket != 0 || consumedTicket != 0 || recentConsumedTicket != 1 || recentTicket != 1 || oldAudit != 0 || recentAudit != 1 {
+		t.Fatalf("rows remaining = old-admin:%d admin:%d old-access:%d access:%d old-ticket:%d old-consumed-ticket:%d recent-consumed-ticket:%d ticket:%d old-audit:%d audit:%d",
+			oldAdmin, recentAdmin, oldAccess, recentAccess, oldTicket, consumedTicket, recentConsumedTicket, recentTicket, oldAudit, recentAudit)
 	}
 }

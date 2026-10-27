@@ -76,7 +76,8 @@ func (h adminAuthHandlers) login(w http.ResponseWriter, r *http.Request) {
 	meta := adminauth.SessionMeta{IPHash: ipHash, UserAgentHash: userAgentHash}
 	limiterKey := hex.EncodeToString(ipHash)
 	now := time.Now().UTC()
-	if retryAfter := h.limiter.Check(limiterKey, now); retryAfter > 0 {
+	attempt, retryAfter := h.limiter.Begin(limiterKey, now)
+	if retryAfter > 0 {
 		seconds := int(retryAfter.Seconds())
 		if retryAfter%time.Second != 0 {
 			seconds++
@@ -87,22 +88,24 @@ func (h adminAuthHandlers) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusTooManyRequests, "RATE_LIMITED", "登录尝试过多，请稍后再试")
 		return
 	}
+	defer attempt.Release(time.Now().UTC())
 	result, err := h.service.Login(r.Context(), payload.Email, payload.Credential, meta)
 	if errors.Is(err, adminauth.ErrInvalidCredentials) {
-		h.limiter.RecordFailure(limiterKey, now)
+		attempt.Failed(time.Now().UTC())
 		recordAudit(r, h.audit, h.logger, h.ipHashKey, "ADMIN_LOGIN_FAILURE", audit.ActorAdmin, nil, nil,
 			map[string]any{"reason": "invalid_credentials"})
 		writeError(w, r, http.StatusUnauthorized, "INVALID_CREDENTIALS", "邮箱或密码错误")
 		return
 	}
 	if err != nil {
+		attempt.Release(time.Now().UTC())
 		recordAudit(r, h.audit, h.logger, h.ipHashKey, "ADMIN_LOGIN_ERROR", audit.ActorAdmin, nil, nil,
 			map[string]any{"reason": "service_error"})
 		h.logger.ErrorContext(r.Context(), "admin login failed", "error", err)
 		writeError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "登录失败，请稍后重试")
 		return
 	}
-	h.limiter.RecordSuccess(limiterKey)
+	attempt.Succeeded()
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     h.cookieName,

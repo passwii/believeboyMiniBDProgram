@@ -52,7 +52,8 @@ func (q *Queries) DeleteOldAuditEvents(ctx context.Context, createdAt pgtype.Tim
 
 const deleteOldViewerTickets = `-- name: DeleteOldViewerTickets :execrows
 DELETE FROM viewer_tickets
-WHERE expires_at < $1 OR (consumed_at IS NOT NULL AND consumed_at < $2)
+WHERE (consumed_at IS NULL AND expires_at < $1)
+   OR (consumed_at IS NOT NULL AND consumed_at < $2)
 `
 
 type DeleteOldViewerTicketsParams struct {

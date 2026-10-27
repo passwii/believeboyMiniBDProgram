@@ -40,6 +40,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("VIEWER_SESSION_TTL", "")
 	t.Setenv("VIEWER_TICKET_TTL", "")
 	t.Setenv("CONTENT_URL_TTL", "")
+	t.Setenv("TRUSTED_PROXY_CIDRS", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -78,6 +79,22 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.ContentURLTTL.Minutes() != 10 {
 		t.Fatalf("ContentURLTTL = %v", cfg.ContentURLTTL)
 	}
+	if len(cfg.TrustedProxyCIDRs) != 0 {
+		t.Fatalf("TrustedProxyCIDRs = %v, want empty by default", cfg.TrustedProxyCIDRs)
+	}
+}
+
+func TestLoadParsesTrustedProxyCIDRs(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("TRUSTED_PROXY_CIDRS", " 10.1.2.3/8, 2001:db8::1/32 ")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.TrustedProxyCIDRs) != 2 || cfg.TrustedProxyCIDRs[0] != "10.0.0.0/8" || cfg.TrustedProxyCIDRs[1] != "2001:db8::/32" {
+		t.Fatalf("TrustedProxyCIDRs = %v", cfg.TrustedProxyCIDRs)
+	}
 }
 
 func TestLoadRejectsOversizedUploadLimit(t *testing.T) {
@@ -111,5 +128,14 @@ func TestLoadRejectsInvalidEncryptionKey(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected short encryption key to fail")
+	}
+}
+
+func TestLoadRejectsInvalidTrustedProxyCIDR(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("TRUSTED_PROXY_CIDRS", "10.0.0.0/8,not-a-cidr")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected invalid TRUSTED_PROXY_CIDRS to fail")
 	}
 }

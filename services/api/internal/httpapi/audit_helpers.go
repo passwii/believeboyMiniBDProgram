@@ -32,7 +32,8 @@ func recordAudit(
 	}
 	encoded, err := json.Marshal(metadata)
 	if err != nil {
-		logger.ErrorContext(r.Context(), "encode audit metadata failed", "error", err)
+		logger.ErrorContext(r.Context(), "encode audit metadata failed",
+			"request_id", middleware.GetReqID(r.Context()), "error", err)
 		return
 	}
 	ipHash, userAgentHash := requestHashes(r, key)
@@ -42,12 +43,16 @@ func recordAudit(
 		IPHash: ipHash, UserAgentHash: userAgentHash, Metadata: encoded,
 	})
 	if err != nil {
-		logger.ErrorContext(r.Context(), "record audit event failed", "event_type", eventType, "error", err)
+		logger.ErrorContext(r.Context(), "record audit event failed",
+			"event_type", eventType, "request_id", middleware.GetReqID(r.Context()), "error", err)
 	}
 }
 
 func requestHashes(r *http.Request, key []byte) ([]byte, []byte) {
-	ip := strings.TrimSpace(r.RemoteAddr)
+	ip := strings.TrimSpace(middleware.GetClientIP(r.Context()))
+	if ip == "" {
+		ip = strings.TrimSpace(r.RemoteAddr)
+	}
 	if host, _, err := net.SplitHostPort(ip); err == nil {
 		ip = host
 	}

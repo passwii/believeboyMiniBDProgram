@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/base64"
 	"fmt"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -25,6 +26,7 @@ type Config struct {
 	TokenEncryptionKey []byte
 	ContentSigningKey  []byte
 	IPHashKey          []byte
+	TrustedProxyCIDRs  []string
 	MaxUploadBytes     int64
 	S3Endpoint         string
 	S3Region           string
@@ -78,6 +80,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	trustedProxyCIDRs, err := cidrListEnv("TRUSTED_PROXY_CIDRS")
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
 		HTTPAddr:           stringEnv("API_ADDR", ":8080"),
@@ -95,6 +101,7 @@ func Load() (Config, error) {
 		TokenEncryptionKey: tokenKey,
 		ContentSigningKey:  signingKey,
 		IPHashKey:          ipHashKey,
+		TrustedProxyCIDRs:  trustedProxyCIDRs,
 		MaxUploadBytes:     maxUploadBytes,
 		S3Endpoint:         stringEnv("S3_ENDPOINT", "http://localhost:9000"),
 		S3Region:           stringEnv("S3_REGION", "us-east-1"),
@@ -110,6 +117,23 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("S3_BUCKET, S3_ACCESS_KEY, and S3_SECRET_KEY are required")
 	}
 	return cfg, nil
+}
+
+func cidrListEnv(key string) ([]string, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return nil, nil
+	}
+	values := strings.Split(raw, ",")
+	prefixes := make([]string, 0, len(values))
+	for _, value := range values {
+		prefix, err := netip.ParsePrefix(strings.TrimSpace(value))
+		if err != nil {
+			return nil, fmt.Errorf("%s contains an invalid CIDR %q", key, value)
+		}
+		prefixes = append(prefixes, prefix.Masked().String())
+	}
+	return prefixes, nil
 }
 
 func stringEnv(key, fallback string) string {
